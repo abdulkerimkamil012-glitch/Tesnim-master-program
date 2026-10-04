@@ -1,4 +1,4 @@
-/* Tesnim cloud add-on: login + automatic sync + roles + offline-safe sync (Phase 2) + grouped assign list (Phase 3A part 1). Edit ONLY the two lines below. */
+/* Tesnim cloud add-on: login + automatic sync + roles + offline-safe sync (Phase 2) + grouped assign list (Phase 3A part 1) + safe first login (Phase 3A part 2). Edit ONLY the two lines below. */
 (function () {
   'use strict';
   var SB_URL = 'https://xdjfiiuqiecntyuarvkq.supabase.co', SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhkamZpaXVxaWVjbnR5dWFydmtxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA3NDM2NDcsImV4cCI6MjEwNjMxOTY0N30.kyiKWvh8OvQQG7vVtLHddc-Sksk_2U3ZVI42o3V51as';
@@ -160,7 +160,7 @@
     var old = null; try { old = JSON.parse(ls.getItem('tesnim_me') || 'null'); } catch (e) { }
     if (old && d.user && ((old.id && d.user.id && old.id !== d.user.id) || (!(old.id && d.user.id) && old.username !== d.user.username))) { wipeLocal(true); prev = {}; dirty = { s: 0, m: 0 }; }   // someone else logged in on this phone
     me = d.user; cur = { sv: d.sv, mv: d.mv, lv: d.lv };
-    if (ls.getItem('tesnim_prev') == null) setPrev(d.log || {});
+    if (ls.getItem('tesnim_prev') == null) setPrev({});   // Phase 3A: a phone with no saved copy yet knows nothing about the server, so it must never ask the server to delete anything
     saveMe(); storeRole(); classes(); chip();
     if (me.is_admin && d.sv === 0) { setPrev({}); ready = true; push(); saveCv(); return unveil(); }
     if (ls.getItem('tesnim_cv') !== sig()) { apply(d); return location.reload(); }
