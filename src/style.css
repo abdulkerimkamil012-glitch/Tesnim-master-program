@@ -1,4 +1,4 @@
-/* Phase 3A part 2: ✓ / ✗ / % results - styles at the very bottom of this file. */
+/* Phase 3A part 2 (✓ / ✗ / % results) and part 3 (📝 notes) - their styles are at the very bottom of this file. */
 /* ============================================================
    COLORS: change the values below to reskin the whole app.
    Palette in use: sage 6D9773, deep green 0C3B2E, tan BB8A52, amber FFBA00.
@@ -268,3 +268,29 @@ h1.title{white-space:normal}
 .res-b.gh{font-weight:600;color:var(--muted)}
 .res-b.on{outline:2px solid var(--gold);outline-offset:2px}
 .res-num{flex:1;min-width:0;padding:11px 12px;border:1px solid var(--gb);border-radius:12px;background:var(--glass);color:var(--text);font:inherit;font-size:1rem}
+
+/* ---- Phase 3A part 3: 📝 notes ---- */
+.card-note{display:flex;gap:8px;align-items:flex-start;padding:9px 11px;border-radius:12px;background:var(--glass);border:1px solid var(--gb);font-size:.78rem;line-height:1.5;color:var(--text)}
+.cn-i{flex-shrink:0}
+.cn-t{min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.cf-note{position:relative}
+.cf-note.has-note{border-color:var(--gold)}
+.cf-note.has-note::after{content:'';position:absolute;top:1px;inset-inline-end:1px;width:8px;height:8px;border-radius:50%;background:var(--gold)}
+.day-locked .cf-note{opacity:.45}
+.no-tick .cf-note{display:none}
+.notebox{position:fixed;left:50%;top:9vh;transform:translateX(-50%);z-index:30;width:90vw;max-width:360px;max-height:84vh;overflow-y:auto;padding:18px;border-radius:20px;background:var(--sheet);border:1px solid var(--gb);box-shadow:var(--sh);-webkit-backdrop-filter:blur(28px) saturate(150%);backdrop-filter:blur(28px) saturate(150%)}
+.note-ta{display:block;width:100%;box-sizing:border-box;min-height:120px;padding:12px 13px;margin-bottom:6px;border:1px solid var(--gb);border-radius:14px;background:var(--glass);color:var(--text);font:inherit;font-size:16px;line-height:1.5;resize:vertical}
+.note-cnt{text-align:end;font-size:.7rem;color:var(--muted);margin-bottom:10px}
+.res-b.note-del{color:#C0524A}
+.notes-hist{margin-top:12px}
+.nh-row{padding:8px 0;border-top:1px solid var(--gb)}
+.nh-row:first-of-type{border-top:0}
+.nh-d{font-size:.7rem;color:var(--muted);margin-bottom:2px}
+.nh-d b{color:var(--gold);margin-inline-start:4px}
+.nh-t{font-size:.82rem;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.nh-more{padding-top:6px;font-size:.72rem;color:var(--muted);text-align:center}
+
+/* Logged-in users have the name bar (#cl-chip) along the bottom edge; it used to sit ON TOP of the toast and the Undo bar. Lift both above it. */
+body.cloud .toast,body.cloud .undo{bottom:calc(76px + env(safe-area-inset-bottom,0px))}
+.toast,.undo{width:max-content;max-width:90vw}
+body.cloud .detail-body{padding-bottom:90px}   /* keeps the last line of a full-screen page clear of the name bar */
