@@ -1,4 +1,4 @@
-/* Tesnim cloud add-on: login + automatic sync + roles + offline-safe sync (Phase 2). Edit ONLY the two lines below. */
+/* Tesnim cloud add-on: login + automatic sync + roles + offline-safe sync (Phase 2) + grouped assign list (Phase 3A part 1). Edit ONLY the two lines below. */
 (function () {
   'use strict';
   var SB_URL = 'https://xdjfiiuqiecntyuarvkq.supabase.co', SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhkamZpaXVxaWVjbnR5dWFydmtxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA3NDM2NDcsImV4cCI6MjEwNjMxOTY0N30.kyiKWvh8OvQQG7vVtLHddc-Sksk_2U3ZVI42o3V51as';
@@ -185,7 +185,7 @@
     '.cl-btn{padding:13px 16px;border-radius:14px;border:0;background:#ffba00;color:#3b2a00;font-weight:700;font-size:15px}.cl-btn.g{background:#ffffff22;color:#fff}.cl-btn.r{background:#c0392b;color:#fff}' +
     '#cl-chip{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);z-index:30;display:flex;gap:8px;align-items:center;padding:6px 8px 6px 14px;border-radius:99px;background:#0c2a20ee;color:#eaf3e6;font-size:13px;box-shadow:0 2px 12px #0006}#cl-chip button{border:0;border-radius:99px;padding:7px 12px;background:#ffffff22;color:#fff;font-size:13px}' +
     '#cl-admin .in{max-width:560px;margin:0 auto;padding:20px 16px 60px}.cl-row{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:12px;margin:8px 0;border-radius:14px;background:#ffffff14}' +
-    '.cl-chk{display:flex;gap:10px;align-items:center;padding:7px 0;font-size:15px}.cl-chk input{width:20px;height:20px}#cl-err{color:#ff9d8f;min-height:18px;font-size:14px}.cl-box{max-height:220px;overflow-y:auto;padding:4px 12px;border-radius:12px;background:#ffffff0d}' +
+    '.cl-chk{display:flex;gap:10px;align-items:center;padding:7px 0;font-size:15px}.cl-chk input{width:20px;height:20px}#cl-err{color:#ff9d8f;min-height:18px;font-size:14px}.cl-box{max-height:55vh;overflow-y:auto;padding:6px;border-radius:12px;background:#ffffff0d}' +
     'body:not(.is-admin) #importBtn,body:not(.is-admin) #exportBtn{display:none}.no-add #addBtn,.no-add #addPageBtn{display:none}.no-edit .edit,.no-edit [data-pgedit],.no-edit .dtab[data-tab=edit]{display:none}' +
     '.no-del .del,.no-del [data-pgdel],.no-del #etDelete,.no-del .trash-purge,.no-del #trashClearAll{display:none}.no-trash #trashBtn{display:none}.no-dash .ringcard{display:none}.no-rep #dayRepBtn,.no-rep #weekBtn{display:none}' +
     '.no-tick .tick,.no-tick .subtick,.no-tick .wd-cell{pointer-events:none;opacity:.45}#cl-note{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:70;padding:10px 16px;border-radius:99px;background:#c0392b;color:#fff;font-size:14px;max-width:90vw;text-align:center}' +
@@ -200,6 +200,13 @@
 .cl-row{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18)}
 .cl-chk input{-webkit-appearance:none;appearance:none;width:42px;height:24px;border-radius:99px;background:#ffffff33;position:relative;flex:none;transition:.2s}
 .cl-chk input:before{content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s}.cl-chk input:checked{background:#2fbf84}.cl-chk input:checked:before{left:21px}
+.cl-chk input:indeterminate{background:#e79a00}.cl-chk input:indeterminate:before{left:12px}.cl-chk input:disabled{opacity:.4}
+.cl-grp{margin:0 0 8px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);overflow:hidden}
+.cl-gh{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 12px;background:rgba(255,255,255,.1)}
+.cl-gt{flex:1;min-width:0;display:flex;align-items:center;gap:8px;padding:10px 0;border:0;background:none;color:inherit;font:inherit;font-size:15px;text-align:start;cursor:pointer}
+.cl-gt b{overflow-wrap:anywhere}.cl-gc{opacity:.7;font-size:12px;white-space:nowrap}.cl-car{opacity:.8;width:14px;flex:none}
+.cl-gb{padding:0 12px}.cl-gb .cl-chk{align-items:flex-start}.cl-gb .cl-chk>span{line-height:1.5}
+.cl-wd{display:inline-block;padding:1px 9px;margin-inline-start:4px;border-radius:99px;background:rgba(255,255,255,.18);font-size:11px;white-space:nowrap}
 #cl-chip{padding:7px;gap:10px;background:rgba(12,42,32,.55);border:1px solid rgba(255,255,255,.25);-webkit-backdrop-filter:blur(18px) saturate(160%);backdrop-filter:blur(18px) saturate(160%);box-shadow:0 10px 30px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.25)}
 #cl-chip .av{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:700;background:linear-gradient(145deg,#ffd760,#e79a00);color:#3b2a00}
 #cl-st{font-size:12px;opacity:.9;white-space:nowrap}#cl-chip .nm{display:flex;flex-direction:column;line-height:1.15;font-weight:600}#cl-chip .nm small{font-size:10px;opacity:.7;font-weight:400}`;
@@ -218,6 +225,33 @@
       api('app_login', { p_user: $('cl-u').value.trim(), p_pass: $('cl-p').value }).then(function (r) { rawSet.call(ls, 'tesnim_token', r.token); location.reload(); })
         .catch(function (x) { $('cl-err').textContent = /bad/.test(x.message) ? 'ስሙ ወይም የይለፍ ቃሉ ትክክል አይደለም' : 'ግንኙነት አልተሳካም — ቅንብሩን ያረጋግጡ'; });
     };
+  }
+
+  // ---------- Phase 3A part 1: the assign list, grouped by category ----------
+  var DAYN = ['ሰኞ', 'ማክሰኞ', 'ረቡዕ', 'ሐሙስ', 'አርብ', 'ቅዳሜ', 'እሁድ'];   // 1=Mon ... 7=Sun (same numbers main.js uses)
+  function dayNums(p) { return Array.isArray(p.schedule) ? p.schedule.map(Number).filter(function (n) { return n >= 1 && n <= 7; }).sort(function (a, b) { return a - b; }) : []; }
+  function whenLabel(p) { var d = dayNums(p); return (!d.length || d.length >= 7) ? 'ዕለታዊ' : d.map(function (n) { return DAYN[n - 1]; }).join(' · '); }
+  function groupProgs(progs) {   // [{name, none, items:[{p}]}] - groups in order of first appearance, "no category" last; inside a group: Mon..Sun, then daily
+    var map = {}, order = [];
+    progs.forEach(function (p, i) {
+      var c = String(p.category || '').trim(), k = c ? 'c:' + c : 'none', d = dayNums(p);
+      if (!map[k]) { map[k] = { name: c || 'ያለ ምድብ', none: !c, items: [] }; order.push(k); }
+      map[k].items.push({ p: p, i: i, key: d.length && d.length < 7 ? d[0] : 8 });
+    });
+    var gs = order.map(function (k) { return map[k]; });
+    gs.forEach(function (g) { g.items.sort(function (a, b) { return a.key - b.key || a.i - b.i; }); });
+    return gs.filter(function (g) { return !g.none; }).concat(gs.filter(function (g) { return g.none; }));
+  }
+  function listHtml(progs, u, all, taken) {
+    if (!progs.length) return '<p style="opacity:.7;font-size:14px;margin:8px">ምንም ፕሮግራም የለም</p>';
+    return groupProgs(progs).map(function (g) {
+      return '<div class="cl-grp"><div class="cl-gh"><button type="button" class="cl-gt" data-gt="1" aria-expanded="true"><span class="cl-car">▾</span><b>' + esc(g.name) + '</b><small class="cl-gc"></small></button>' +
+        '<label class="cl-chk"><input type="checkbox" data-gall="1" aria-label="' + esc(g.name) + ' - ሁሉንም ምረጥ"></label></div><div class="cl-gb">' +
+        g.items.map(function (x) {
+          var p = x.p, mine = all || (u.programs || []).indexOf(p.id) > -1, tk = taken[p.id];
+          return '<label class="cl-chk"><input type="checkbox" data-g="' + esc(p.id) + '"' + (mine ? ' checked' : '') + (tk && !mine ? ' disabled' : '') + '><span>' + esc(p.name) + ' <small class="cl-wd">' + esc(whenLabel(p)) + '</small>' + (tk ? ' <small>(' + esc(tk) + ')</small>' : '') + '</span></label>';
+        }).join('') + '</div></div>';
+    }).join('');
   }
 
   // ---------- admin: users, roles, which programs each user sees ----------
@@ -246,9 +280,32 @@
         '<label class="cl-chk"><input type="checkbox" id="f-a"' + (u.is_admin ? ' checked' : '') + '> 👑 አስተዳዳሪ (ሁሉንም ያያል)</label><h3>ሚና</h3><select class="cl-in" id="f-role">' + ROLES.map(function (r) { return '<option value="' + r[0] + '"' + ((u.perms && u.perms.role || 'custom') === r[0] ? ' selected' : '') + '>' + r[1] + '</option>'; }).join('') + '</select><h3>ፈቃዶች</h3>' +
         PERMS.map(function (p) { return '<label class="cl-chk"><input type="checkbox" data-p="' + p[0] + '"' + ((u.perms[p[0]] !== undefined ? u.perms[p[0]] : p[0] === 'tick') ? ' checked' : '') + '> ' + p[1] + '</label>'; }).join('') +
         '<h3>የሚያያቸው ፕሮግራሞች</h3><label class="cl-chk"><input type="checkbox" id="f-all"' + (all ? ' checked' : '') + '> ሁሉም ፕሮግራሞች</label><div class="cl-box" id="f-list">' +
-        progs.map(function (p) { var mine = all || (u.programs || []).indexOf(p.id) > -1, tk = taken[p.id]; return '<label class="cl-chk"><input type="checkbox" data-g="' + esc(p.id) + '"' + (mine ? ' checked' : '') + (tk && !mine ? ' disabled' : '') + '> ' + esc(p.name) + (tk ? ' <small>(' + esc(tk) + ')</small>' : '') + '</label>'; }).join('') + '</div>' +
+        listHtml(progs, u, all, taken) + '</div>' +
         '<div id="cl-err"></div><p><button class="cl-btn" id="f-s">አስቀምጥ</button> <button class="cl-btn g" id="f-c">ተመለስ</button></p></div>';
-      $('f-all').onchange = function () { box.querySelectorAll('[data-g]').forEach(function (c) { if (!c.disabled) c.checked = $('f-all').checked; }); };
+      var lst = $('f-list');
+      function syncGroups() {   // each group's switch + "n/m" count always matches its activities (activities owned by someone else are not counted)
+        lst.querySelectorAll('.cl-grp').forEach(function (g) {
+          var cs = [].slice.call(g.querySelectorAll('[data-g]')).filter(function (c) { return !c.disabled; });
+          var n = cs.filter(function (c) { return c.checked; }).length, a = g.querySelector('[data-gall]');
+          a.disabled = !cs.length; a.checked = !!cs.length && n === cs.length; a.indeterminate = n > 0 && n < cs.length;
+          g.querySelector('.cl-gc').textContent = n + '/' + cs.length;
+        });
+      }
+      $('f-all').onchange = function () { box.querySelectorAll('[data-g]').forEach(function (c) { if (!c.disabled) c.checked = $('f-all').checked; }); syncGroups(); };
+      lst.onchange = function (e) {
+        var t = e.target;
+        if (t.dataset.gall !== undefined) {   // "select all in this group"
+          t.closest('.cl-grp').querySelectorAll('[data-g]').forEach(function (c) { if (!c.disabled) c.checked = t.checked; });
+          if (!t.checked) $('f-all').checked = false;
+        } else if (t.dataset.g !== undefined && !t.checked) $('f-all').checked = false;   // "all programs" can no longer stay on when one is switched off
+        syncGroups();
+      };
+      lst.onclick = function (e) {   // tap a group's title to fold / unfold it
+        var b = e.target.closest('[data-gt]'); if (!b) return;
+        var body = b.closest('.cl-grp').querySelector('.cl-gb'); body.hidden = !body.hidden;
+        b.setAttribute('aria-expanded', String(!body.hidden)); b.querySelector('.cl-car').textContent = body.hidden ? '▸' : '▾';
+      };
+      syncGroups();
       $('f-role').onchange = function () {
         var r = ROLES.filter(function (x) { return x[0] === $('f-role').value; })[0]; if (!r || r[0] === 'custom') return;
         var on = r[2].split(',');
