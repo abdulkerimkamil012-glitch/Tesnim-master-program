@@ -4,7 +4,7 @@
 // the phone. Only this app's own files and its Google Fonts are saved.
 // Supabase (login, ticks, sync) is never touched here - cloud.js handles it.
 const CACHE = 'tesnim-v2';
-const SLOW_MS = 4000;                       // network slower than this -> use the saved copy
+const SLOW_MS = 3000;                       // network slower than this -> use the saved copy
 const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 
 self.addEventListener('install', e => { self.skipWaiting(); e.waitUntil(precache()); });
