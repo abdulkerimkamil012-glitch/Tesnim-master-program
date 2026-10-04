@@ -14,9 +14,11 @@
   try { prev = JSON.parse(ls.getItem('tesnim_prev') || 'null') || {}; } catch (e) { prev = {}; }   // Phase 2: the log as the server last had it (survives restarts, so offline ticks are never forgotten)
   try { dirty = JSON.parse(ls.getItem('tesnim_dirty') || 'null') || dirty; } catch (e) { }
 
-  function api(fn, args) {
-    return fetch(SB_URL + '/rest/v1/rpc/' + fn, { method: 'POST', headers: { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(args || {}) })
-      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.message || 'error'); return j; }); });
+  function api(fn, args, ms) {   // ms = give up after this long (a stuck connection must never freeze the app)
+    var ctl = window.AbortController ? new AbortController() : null, t = ctl ? setTimeout(function () { ctl.abort(); }, ms || 15000) : null;
+    return fetch(SB_URL + '/rest/v1/rpc/' + fn, { method: 'POST', headers: { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(args || {}), signal: ctl ? ctl.signal : undefined })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.message || 'error'); return j; }); })
+      .then(function (j) { clearTimeout(t); return j; }, function (e) { clearTimeout(t); throw e; });
   }
   function permOn(k) { return !!me.is_admin || (k === 'tick' ? me.perms.tick !== false : !!me.perms[k]); }
   function storeRole() {   // read by src/main.js at page load: who am I, may I tick, may I edit past days
@@ -171,6 +173,7 @@
     me = cm; net = false;
     try { cur = JSON.parse(ls.getItem('tesnim_curv') || 'null') || cur; } catch (e) { }
     classes(); chip(); ready = true; status(); startPolling(); kick();
+    setTimeout(pollNow, 8000);   // if the network was only slow, catch up shortly
   }
 
   // ---------- UI ----------
@@ -267,7 +270,8 @@
   if (SB_URL.indexOf('YOUR-') === 0) return;   // not configured yet: app works as before
   el('cl-veil');
   if (!tok) return login();
-  api('app_get', { p_tok: tok }).then(start, function (e) {
+  if (navigator.onLine === false) return offlineStart();   // the phone says there is no network: do not wait
+  api('app_get', { p_tok: tok }, 4000).then(start, function (e) {   // 4 seconds max, then open from the saved copy
     if (/auth/.test(e.message)) { ls.removeItem('tesnim_token'); return login(); }
     offlineStart();   // no internet: open from this phone's saved copy
   });
