@@ -1,4 +1,4 @@
-// Phase 3A part 2: results for simple activities - ✓ done, ✗ not done, 1-99% partly done. (Notes come in part 3.)
+// Phase 3A part 3: a note for every activity on every day (📝). Part 2 before it: results ✓ done, ✗ not done, 1-99% partly done.
 import './style.css';
 import { MEALS as SEED_MEALS, DAILY as SEED_DAILY, INFO_PAGES as SEED_PAGES, WD } from './data.js';
 
@@ -180,7 +180,8 @@ const disp = (p, ds) => { const o = dayOv[ds] && dayOv[ds][p.id]; return o ? { .
                                      true              = ✓ done           (the old format - still valid)
                                      { r:'x' }         = ✗ not done
                                      { r:'p', p:60 }   = partly done, 1-99 %
-                                     { n:'text' } or the forms above plus  n:'text'  = a note (part 3)
+                                     { n:'text' } or the forms above plus  n:'text'  = a note (part 3, 📝)
+                                     a checklist (master) activity keeps its note as  n:'text'  next to its sub-item keys
    Only a full ✓ counts as "done" for the ring, the reports and the streak.
    The server stores any value as-is, so no database change is needed. */
 function parseRes(l) {   // one stored value -> { k: '' | 'v' | 'x' | 'p', pct }
@@ -215,6 +216,37 @@ function setRes(ds, p, k, pct) {   // k: 'v' | 'x' | 'p' | '' (clear). A note al
   logs[ds][p.id] = v;
 }
 function toggleSimple(ds, p) { setRes(ds, p, parseRes(logs[ds] && logs[ds][p.id]).k === 'v' ? '' : 'v'); }   // a tap: ✓ on; if already ✓ then off; ✗ or % becomes ✓
+/* ---------- NOTES (Phase 3A part 3) ----------
+   One short note per activity per day, stored INSIDE the same value as the result (see RESULTS above),
+   so it syncs, backs up and obeys the day-lock exactly like a tick. Saving a note never changes the result. */
+const NOTE_MAX = 500;
+const cleanNote = t => Array.from(String(t == null ? '' : t).replace(/\r\n?/g, '\n').trim()).slice(0, NOTE_MAX).join('');
+function noteOf(ds, p) {
+  const l = logs[ds] && logs[ds][p.id];
+  return (l && typeof l === 'object' && typeof l.n === 'string') ? l.n : '';
+}
+function setNote(ds, p, text) {   // text '' = remove the note. The ✓ / ✗ / % result (or the checklist ticks) is always kept.
+  const t = cleanNote(text);
+  logs[ds] = logs[ds] || {};
+  const old = logs[ds][p.id];
+  if (p.type === 'checklist') {
+    const o = (old && typeof old === 'object') ? { ...old } : {};
+    delete o.n; if (t) o.n = t;
+    logs[ds][p.id] = (t || Object.keys(o).length) ? o : false;
+    return;
+  }
+  const r = parseRes(old);
+  let v;
+  if (r.k === 'v') v = t ? { r: 'v', n: t } : true;
+  else if (r.k === 'x') v = t ? { r: 'x', n: t } : { r: 'x' };
+  else if (r.k === 'p') v = t ? { r: 'p', p: r.pct, n: t } : { r: 'p', p: r.pct };
+  else v = t ? { n: t } : false;
+  logs[ds][p.id] = v;
+}
+const dayLabel = ds => {
+  const d = parseDs(ds);
+  return WD[d.getDay()] + ' · ' + d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+};
 const subDone = (ds, p, sid) => !!(logs[ds] && logs[ds][p.id] && logs[ds][p.id][sid]);
 
 /* ---------- streaks & motivation ---------- */
@@ -308,6 +340,42 @@ function resultDialog(p, ds) {
   });
 }
 
+/* ---------- note dialog (Phase 3A part 3) - resolves { text } to save, { del:true } to remove the note, or null if closed ---------- */
+function noteDialog(p, ds) {
+  return new Promise(resolve => {
+    const old = noteOf(ds, p);
+    const ov = document.createElement('div'); ov.className = 'overlay open';   // 'overlay open' also stops the cloud sync from reloading the page while you type
+    const box = document.createElement('div'); box.className = 'notebox glass';
+    box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
+    box.innerHTML = `<p class="res-t">${esc(disp(p, ds).name)}</p>
+      <div class="res-lbl">📝 ማስታወሻ · ${esc(dayLabel(ds))}</div>
+      <textarea class="note-ta" maxlength="${NOTE_MAX}" rows="5" placeholder="እዚህ ይጻፉ…">${esc(old)}</textarea>
+      <div class="note-cnt"></div>
+      <div class="res-row"><button type="button" class="res-b ok" data-nsave="1">አስቀምጥ</button><button type="button" class="res-b gh" data-nclose="1">ዝጋ</button></div>
+      ${old ? '<div class="res-row"><button type="button" class="res-b gh note-del" data-ndel="1">🗑 ማስታወሻውን ሰርዝ</button></div>' : ''}`;
+    document.body.append(ov, box);
+    const ta = box.querySelector('.note-ta'), cnt = box.querySelector('.note-cnt');
+    const dirty = () => cleanNote(ta.value) !== old;
+    const upd = () => { cnt.textContent = ta.value.length + ' / ' + NOTE_MAX; };
+    const onKey = e => { if (e.key === 'Escape') finish(null); };
+    const finish = v => { document.removeEventListener('keydown', onKey); ov.remove(); box.remove(); resolve(v); };
+    document.addEventListener('keydown', onKey);
+    ov.onclick = () => { if (!dirty()) finish(null); };   // a stray tap outside must never throw away what you typed
+    ta.oninput = upd; upd();
+    box.onclick = e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.nclose !== undefined) return finish(null);
+      if (b.dataset.ndel !== undefined) return finish({ del: true });
+      if (b.dataset.nsave !== undefined) {
+        if (!dayEditable(ds)) { lockToast(ds); return; }   // the day got locked while typing (e.g. midnight): keep the text on screen
+        const t = cleanNote(ta.value);
+        finish(t ? { text: t } : { del: true });
+      }
+    };
+    ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+  });
+}
+
 /* ---------- theme ---------- */
 const root = document.documentElement;
 const savedTh = localStorage.getItem(LS_TH); if (savedTh) root.dataset.theme = savedTh;
@@ -342,7 +410,7 @@ function weekStripHtml(p) {
 // Quick-access footer row: this program's streak + this week's %, plus
 // shortcuts straight into its Calendar/Statistics tabs (📅/📊) without
 // having to tap the card's name first.
-function cardFootHtml(p) {
+function cardFootHtml(p, ds) {
   const t = today(), ds0 = fmt(t);
   const wkStart = new Date(t); wkStart.setDate(t.getDate() - ((t.getDay() + 6) % 7));
   const wk = periodStats(p, fmt(wkStart), ds0);
@@ -351,6 +419,7 @@ function cardFootHtml(p) {
     <span class="cf-stat">✓ ${wk.total ? Math.round(wk.pct * 100) : 0}%</span>
     <span class="cf-spacer"></span>
     ${p.type !== 'checklist' ? `<button type="button" class="cf-btn cf-res" data-res="${p.id}" aria-label="ውጤት ምረጥ">ውጤት</button>` : ''}
+    <button type="button" class="cf-btn cf-note${noteOf(ds, p) ? ' has-note' : ''}" data-note="${p.id}" aria-label="ማስታወሻ">📝</button>
     <button type="button" class="cf-btn" data-opencal="${p.id}" aria-label="ቀን መቁጠሪያ">📅</button>
     <button type="button" class="cf-btn" data-openstat="${p.id}" aria-label="ስታትስቲክስ">📊</button>
   </div>`;
@@ -377,8 +446,9 @@ function card(p, ds) {
         <button class="del" data-del="${p.id}" aria-label="ሰርዝ">🗑</button>
       </div>
     </div>
+    ${noteOf(ds, p) ? `<div class="card-note"><span class="cn-i" aria-hidden="true">📝</span><span class="cn-t">${esc(noteOf(ds, p))}</span></div>` : ''}
     ${weekStripHtml(p)}
-    ${cardFootHtml(p)}
+    ${cardFootHtml(p, ds)}
   </div>`;
 }
 
@@ -454,7 +524,7 @@ $('list').onclick = async e => {
         eb = e.target.closest('[data-edit]'), db = e.target.closest('[data-del]'),
         ob = e.target.closest('[data-open]'), wb = e.target.closest('[data-wtick]'),
         cb = e.target.closest('[data-opencal]'), stb = e.target.closest('[data-openstat]'),
-        rsb = e.target.closest('[data-res]');
+        rsb = e.target.closest('[data-res]'), nb = e.target.closest('[data-note]');
   const ds = fmt(sel);
 
   if (wb) {
@@ -464,9 +534,10 @@ $('list').onclick = async e => {
     if (!dayEditable(wds)) { lockToast(wds); return; }
     const p = programs.find(x => x.id === pid); if (!p) return;
     if (p.type === 'checklist') {
-      const wasDone = isDone(wds, p);
+      const wasDone = isDone(wds, p), keepN = noteOf(wds, p);   // the day's note must survive a master tap
       logs[wds] = logs[wds] || {}; logs[wds][p.id] = {};
       p.subItems.forEach(s => logs[wds][p.id][s.id] = !wasDone);
+      if (keepN) logs[wds][p.id].n = keepN;
     } else {
       toggleSimple(wds, p);
     }
@@ -482,6 +553,26 @@ $('list').onclick = async e => {
     if (!dayEditable(ds)) { lockToast(ds); return; }
     setRes(ds, p1, r.k, r.pct); persist(); render(); pop(`[data-tick="${pid}"]`); return;
   }
+  if (nb) {   // "📝": write, change or remove the note for the day that is on screen
+    const pid = nb.dataset.note, p0 = programs.find(x => x.id === pid); if (!p0) return;
+    if (!dayEditable(ds)) { lockToast(ds); return; }
+    const before = noteOf(ds, p0);
+    const r = await noteDialog(p0, ds); if (!r) return;
+    const p1 = programs.find(x => x.id === pid); if (!p1) return;
+    if (!dayEditable(ds)) { lockToast(ds); return; }
+    if (r.del) {
+      if (!before) return;
+      setNote(ds, p1, ''); persist(); render();
+      showUndo('ማስታወሻ ተሰርዟል', () => {
+        if (!dayEditable(ds)) { lockToast(ds); return; }
+        const q = programs.find(x => x.id === pid); if (!q) return;
+        setNote(ds, q, before); persist(); render();
+      });
+      return;
+    }
+    if (r.text === before) return;
+    setNote(ds, p1, r.text); persist(); render(); toast('ማስታወሻ ተቀምጧል።'); return;
+  }
   if (cb) { openDetail(cb.dataset.opencal, 'cal'); return; }
   if (stb) { openDetail(stb.dataset.openstat, 'stat'); return; }
 
@@ -496,9 +587,10 @@ $('list').onclick = async e => {
     if (!dayEditable(ds)) { lockToast(ds); return; }
     const id = tb.dataset.tick, p = programs.find(x => x.id === id);
     if (p.type === 'checklist') {
-      const wasDone = isDone(ds, p);
+      const wasDone = isDone(ds, p), keepN = noteOf(ds, p);   // the day's note must survive a master tap
       logs[ds] = logs[ds] || {}; logs[ds][p.id] = {};
       p.subItems.forEach(s => logs[ds][p.id][s.id] = !wasDone);
+      if (keepN) logs[ds][p.id].n = keepN;
     } else {
       toggleSimple(ds, p);
     }
@@ -744,7 +836,18 @@ function calendarTabHtml(p) {
     <div class="cal-nav"><button type="button" id="calPrev">‹</button><b>${esc(monthLabel)}</b><button type="button" id="calNext">›</button></div>
     <div class="cal-grid">${['ሰኞ', 'ማክ', 'ረቡ', 'ሐሙ', 'አር', 'ቅዳ', 'እሁ'].map(l => `<div class="cal-wd">${l}</div>`).join('')}${cells}</div>
     <div class="cal-legend"><span><i class="done"></i>ተጠናቅቋል</span><span><i class="missed"></i>አልተጠናቀቀም</span><span><i class="upcoming"></i>ገና አልደረሰም</span></div>
-    <div class="detail-desc glass"><h4>ዝርዝር መግለጫ</h4>${descHtml(p.desc)}</div>`;
+    <div class="detail-desc glass"><h4>ዝርዝር መግለጫ</h4>${descHtml(p.desc)}</div>${notesHistoryHtml(p)}`;
+}
+
+// All notes ever written for this activity, newest first (shown under the calendar).
+function notesHistoryHtml(p) {
+  const rows = Object.keys(logs).filter(ds => /^\d{4}-\d{2}-\d{2}$/.test(ds) && noteOf(ds, p)).sort().reverse();
+  if (!rows.length) return '';
+  const SHOW = 30;
+  const mark = ds => { const r = resOf(ds, p); return r.k === 'v' ? '✓' : r.k === 'x' ? '✗' : r.k === 'p' ? r.pct + '%' : ''; };
+  return `<div class="detail-desc glass notes-hist"><h4>📝 ማስታወሻዎች (${rows.length})</h4>` +
+    rows.slice(0, SHOW).map(ds => `<div class="nh-row"><div class="nh-d">${esc(dayLabel(ds))}${mark(ds) ? ` <b>${esc(mark(ds))}</b>` : ''}</div><div class="nh-t">${esc(noteOf(ds, p))}</div></div>`).join('') +
+    (rows.length > SHOW ? `<div class="nh-more">… +${rows.length - SHOW}</div>` : '') + `</div>`;
 }
 
 function periodStats(p, fromDs, toDs) {
