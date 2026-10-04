@@ -1,3 +1,4 @@
+// Phase 3A part 2: results for simple activities - ✓ done, ✗ not done, 1-99% partly done. (Notes come in part 3.)
 import './style.css';
 import { MEALS as SEED_MEALS, DAILY as SEED_DAILY, INFO_PAGES as SEED_PAGES, WD } from './data.js';
 
@@ -124,7 +125,7 @@ if (isFirstRun) {
 const savePrograms = () => localStorage.setItem(LS_PROGRAMS, JSON.stringify(programs));
 savePrograms();
 
-let logs = JSON.parse(localStorage.getItem(LS_LOG) || '{}');       // logs[ds][id] = true | {subId:true,...}
+let logs = JSON.parse(localStorage.getItem(LS_LOG) || '{}');       // logs[ds][id]: see "RESULTS" below
 let dayOv = JSON.parse(localStorage.getItem(LS_DOV) || '{}');      // "today only" edit overrides: dayOv[ds][id] = {name,desc}
 let sel = today(), editId = null, lastPct = null;
 const persist = () => { localStorage.setItem(LS_LOG, JSON.stringify(logs)); localStorage.setItem(LS_DOV, JSON.stringify(dayOv)); };
@@ -172,12 +173,48 @@ function hideUndo() { if (undoEl) undoEl.classList.remove('show'); }
 const appliesOn = (p, d) => p.schedule === 'daily' || (Array.isArray(p.schedule) && p.schedule.includes(pDay(d)));
 const tasksFor = d => programs.filter(p => appliesOn(p, d));
 const disp = (p, ds) => { const o = dayOv[ds] && dayOv[ds][p.id]; return o ? { ...p, ...o } : p; };
+/* ---------- RESULTS (Phase 3A part 2) ----------
+   What is stored in logs[ds][id]:
+     a checklist (master) activity : { subId:true,... }                   (unchanged)
+     a simple activity             : false / missing   = nothing marked
+                                     true              = ✓ done           (the old format - still valid)
+                                     { r:'x' }         = ✗ not done
+                                     { r:'p', p:60 }   = partly done, 1-99 %
+                                     { n:'text' } or the forms above plus  n:'text'  = a note (part 3)
+   Only a full ✓ counts as "done" for the ring, the reports and the streak.
+   The server stores any value as-is, so no database change is needed. */
+function parseRes(l) {   // one stored value -> { k: '' | 'v' | 'x' | 'p', pct }
+  if (!l) return { k: '', pct: 0 };
+  if (l === true) return { k: 'v', pct: 100 };
+  if (typeof l === 'object') {
+    if (l.r === 'x') return { k: 'x', pct: 0 };
+    if (l.r === 'v') return { k: 'v', pct: 100 };
+    if (l.r === 'p') { const n = Math.round(Number(l.p)); return n >= 100 ? { k: 'v', pct: 100 } : n >= 1 ? { k: 'p', pct: n } : { k: '', pct: 0 }; }
+    if (l.r === undefined && Object.prototype.hasOwnProperty.call(l, 'n')) return { k: '', pct: 0 };   // a note with no result yet
+  }
+  return { k: 'v', pct: 100 };   // any other stored value counts as done, exactly like before
+}
 function isDone(ds, p) {
   const l = logs[ds] && logs[ds][p.id];
   if (!l) return false;
   if (p.type === 'checklist') return p.subItems.every(s => l[s.id] === true);
-  return true;
+  return parseRes(l).k === 'v';
 }
+function resOf(ds, p) {   // what to show for this activity on this day
+  if (p.type === 'checklist') return isDone(ds, p) ? { k: 'v', pct: 100 } : { k: '', pct: 0 };
+  return parseRes(logs[ds] && logs[ds][p.id]);
+}
+function setRes(ds, p, k, pct) {   // k: 'v' | 'x' | 'p' | '' (clear). A note already saved on this day is always kept.
+  logs[ds] = logs[ds] || {};
+  const old = logs[ds][p.id], n = (old && typeof old === 'object' && typeof old.n === 'string') ? old.n : '';
+  let v;
+  if (k === 'v') v = n ? { r: 'v', n } : true;
+  else if (k === 'x') v = n ? { r: 'x', n } : { r: 'x' };
+  else if (k === 'p') v = n ? { r: 'p', p: pct, n } : { r: 'p', p: pct };
+  else v = n ? { n } : false;
+  logs[ds][p.id] = v;
+}
+function toggleSimple(ds, p) { setRes(ds, p, parseRes(logs[ds] && logs[ds][p.id]).k === 'v' ? '' : 'v'); }   // a tap: ✓ on; if already ✓ then off; ✗ or % becomes ✓
 const subDone = (ds, p, sid) => !!(logs[ds] && logs[ds][p.id] && logs[ds][p.id][sid]);
 
 /* ---------- streaks & motivation ---------- */
@@ -233,6 +270,44 @@ function choiceDialog(title, choices) {
   });
 }
 
+/* ---------- result picker (✓ / ✗ / %) - resolves { k, pct }, or null if closed ---------- */
+function resultDialog(p, ds) {
+  return new Promise(resolve => {
+    const cur = resOf(ds, p);
+    const ov = document.createElement('div'); ov.className = 'overlay open';   // 'overlay open' also stops the cloud sync from reloading the page under the dialog
+    const box = document.createElement('div'); box.className = 'resbox glass';
+    box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
+    box.innerHTML = `<p class="res-t">${esc(disp(p, ds).name)}</p>
+      <div class="res-row">
+        <button type="button" class="res-b ok${cur.k === 'v' ? ' on' : ''}" data-rk="v">✓ ተጠናቅቋል</button>
+        <button type="button" class="res-b no${cur.k === 'x' ? ' on' : ''}" data-rk="x">✗ አልተጠናቀቀም</button>
+      </div>
+      <div class="res-lbl">በከፊል (መቶኛ)</div>
+      <div class="res-row">${[25, 50, 75].map(n => `<button type="button" class="res-b pc${cur.k === 'p' && cur.pct === n ? ' on' : ''}" data-rp="${n}">${n}%</button>`).join('')}</div>
+      <div class="res-row"><input type="number" class="res-num" inputmode="numeric" min="1" max="99" step="1" placeholder="1 – 99" value="${cur.k === 'p' ? cur.pct : ''}"><button type="button" class="res-b pc" data-rgo="1">አስቀምጥ</button></div>
+      <div class="res-row"><button type="button" class="res-b gh" data-rk="">ምልክቱን አጥፋ</button><button type="button" class="res-b gh" data-rclose="1">ዝጋ</button></div>`;
+    document.body.append(ov, box);
+    const onKey = e => { if (e.key === 'Escape') finish(null); };
+    const finish = v => { document.removeEventListener('keydown', onKey); ov.remove(); box.remove(); resolve(v); };
+    document.addEventListener('keydown', onKey);
+    ov.onclick = () => finish(null);
+    const num = box.querySelector('.res-num');
+    const save = () => {
+      const raw = num.value.trim(), n = Number(raw);
+      if (raw === '' || !Number.isInteger(n) || n < 1 || n > 99) { toast('ከ 1 እስከ 99 ያለ ቁጥር ያስገቡ'); return; }
+      finish({ k: 'p', pct: n });
+    };
+    num.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); save(); } };
+    box.onclick = e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.rclose !== undefined) return finish(null);
+      if (b.dataset.rk !== undefined) return finish({ k: b.dataset.rk, pct: 0 });
+      if (b.dataset.rp !== undefined) return finish({ k: 'p', pct: Number(b.dataset.rp) });
+      if (b.dataset.rgo !== undefined) save();
+    };
+  });
+}
+
 /* ---------- theme ---------- */
 const root = document.documentElement;
 const savedTh = localStorage.getItem(LS_TH); if (savedTh) root.dataset.theme = savedTh;
@@ -255,8 +330,8 @@ function weekStripHtml(p) {
     const d = new Date(mon); d.setDate(mon.getDate() + i);
     const dds = fmt(d), isToday = dds === ds0;
     const na = !appliesOn(p, d) || dds < p.createdAt;
-    const done = !na && isDone(dds, p);
-    const cls = na ? 'na' : (done ? 'done' : 'due');
+    const rk = na ? '' : resOf(dds, p).k;
+    const cls = na ? 'na' : (rk === 'v' ? 'done' : rk === 'x' ? 'fail' : rk === 'p' ? 'part' : 'due');
     cells += `<button type="button" class="wd-cell ${cls}${isToday ? ' today' : ''}"${na ? ' disabled' : ` data-wtick="${p.id}:${dds}"`} aria-label="${esc(PDAY_LABELS[i])}">${d.getDate()}</button>`;
   }
   return `<div class="week-strip">
@@ -275,12 +350,13 @@ function cardFootHtml(p) {
     <span class="cf-stat">🔥 ${programStreak(p)}</span>
     <span class="cf-stat">✓ ${wk.total ? Math.round(wk.pct * 100) : 0}%</span>
     <span class="cf-spacer"></span>
+    ${p.type !== 'checklist' ? `<button type="button" class="cf-btn cf-res" data-res="${p.id}" aria-label="ውጤት ምረጥ">ውጤት</button>` : ''}
     <button type="button" class="cf-btn" data-opencal="${p.id}" aria-label="ቀን መቁጠሪያ">📅</button>
     <button type="button" class="cf-btn" data-openstat="${p.id}" aria-label="ስታትስቲክስ">📊</button>
   </div>`;
 }
 function card(p, ds) {
-  const t = disp(p, ds), done = isDone(ds, p);
+  const t = disp(p, ds), done = isDone(ds, p), rs = resOf(ds, p);
   let subHtml = '';
   if (p.type === 'checklist') {
     const doneCt = p.subItems.filter(s => subDone(ds, p, s.id)).length;
@@ -296,7 +372,7 @@ function card(p, ds) {
         <div class="desc">${descHtml(t.desc)}</div>${subHtml}
       </div>
       <div class="actions">
-        <button class="tick${done ? ' done' : ''}" data-tick="${p.id}" aria-label="${done ? 'እንደ አልተጠናቀቀ ምልክት አድርግ' : 'እንደተጠናቀቀ ምልክት አድርግ'}">${done ? '✓' : ''}</button>
+        <button class="tick${done ? ' done' : rs.k === 'x' ? ' fail' : rs.k === 'p' ? ' part' : ''}" data-tick="${p.id}" aria-label="${done ? 'እንደ አልተጠናቀቀ ምልክት አድርግ' : 'እንደተጠናቀቀ ምልክት አድርግ'}">${done ? '✓' : rs.k === 'x' ? '✗' : rs.k === 'p' ? rs.pct + '%' : ''}</button>
         <button class="edit" data-edit="${p.id}" aria-label="ፈጣን አርትዕ">✎</button>
         <button class="del" data-del="${p.id}" aria-label="ሰርዝ">🗑</button>
       </div>
@@ -377,7 +453,8 @@ $('list').onclick = async e => {
   const sb = e.target.closest('[data-subtick]'), tb = e.target.closest('[data-tick]'),
         eb = e.target.closest('[data-edit]'), db = e.target.closest('[data-del]'),
         ob = e.target.closest('[data-open]'), wb = e.target.closest('[data-wtick]'),
-        cb = e.target.closest('[data-opencal]'), stb = e.target.closest('[data-openstat]');
+        cb = e.target.closest('[data-opencal]'), stb = e.target.closest('[data-openstat]'),
+        rsb = e.target.closest('[data-res]');
   const ds = fmt(sel);
 
   if (wb) {
@@ -391,9 +468,19 @@ $('list').onclick = async e => {
       logs[wds] = logs[wds] || {}; logs[wds][p.id] = {};
       p.subItems.forEach(s => logs[wds][p.id][s.id] = !wasDone);
     } else {
-      logs[wds] = logs[wds] || {}; logs[wds][p.id] = !logs[wds][p.id];
+      toggleSimple(wds, p);
     }
     persist(); render(); return;
+  }
+  if (rsb) {   // "ውጤት": pick ✓ / ✗ / % for the day that is on screen
+    const pid = rsb.dataset.res, p0 = programs.find(x => x.id === pid);
+    if (!p0 || p0.type === 'checklist') return;
+    if (!dayEditable(ds)) { lockToast(ds); return; }
+    const r = await resultDialog(p0, ds); if (!r) return;
+    const p1 = programs.find(x => x.id === pid);
+    if (!p1) return;
+    if (!dayEditable(ds)) { lockToast(ds); return; }
+    setRes(ds, p1, r.k, r.pct); persist(); render(); pop(`[data-tick="${pid}"]`); return;
   }
   if (cb) { openDetail(cb.dataset.opencal, 'cal'); return; }
   if (stb) { openDetail(stb.dataset.openstat, 'stat'); return; }
@@ -413,7 +500,7 @@ $('list').onclick = async e => {
       logs[ds] = logs[ds] || {}; logs[ds][p.id] = {};
       p.subItems.forEach(s => logs[ds][p.id][s.id] = !wasDone);
     } else {
-      logs[ds] = logs[ds] || {}; logs[ds][p.id] = !logs[ds][p.id];
+      toggleSimple(ds, p);
     }
     persist(); render();
     pop(`[data-tick="${id}"]`); return;
