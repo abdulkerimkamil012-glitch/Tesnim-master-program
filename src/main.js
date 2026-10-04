@@ -1,4 +1,4 @@
-// Phase 3A part 3: a note for every activity on every day (📝). Part 2 before it: results ✓ done, ✗ not done, 1-99% partly done.
+// Phase 3A part 4: the ring, reports, statistics and calendar understand ✗ / % / notes (60% counts as 60; the streak still needs a full ✓). Part 3: a note per activity per day (📝). Part 2: results ✓ done, ✗ not done, 1-99% partly done.
 import './style.css';
 import { MEALS as SEED_MEALS, DAILY as SEED_DAILY, INFO_PAGES as SEED_PAGES, WD } from './data.js';
 
@@ -205,6 +205,27 @@ function resOf(ds, p) {   // what to show for this activity on this day
   if (p.type === 'checklist') return isDone(ds, p) ? { k: 'v', pct: 100 } : { k: '', pct: 0 };
   return parseRes(logs[ds] && logs[ds][p.id]);
 }
+/* ---------- SCORE (Phase 3A part 4) ----------
+   How much was really done, as a percent: ✓ = 100, 60% = 60, ✗ or nothing = 0.
+   The ring, the day / week reports and the statistics ADD these up, so a 60% counts as 60.
+   The STREAK is the one exception: it still needs a full ✓ (isDone), so a ✗ or a % breaks it.
+   A note alone never counts for anything. */
+function mkStat(sumPct, total, done, part, fail) {   // sumPct = the percents added up; done = full ✓ only; part = 1-99 %; fail = ✗
+  const frac = total ? sumPct / (100 * total) : 0;   // 0..1, exact
+  // 100% is shown ONLY when every single activity is a full ✓ (99.6% must never round up to 100)
+  const pct = !total ? 0 : done === total ? 100 : Math.min(99, Math.round(sumPct / total));   // sumPct / total (not frac * 100): 0.285 * 100 is 28.499999999999996 in JavaScript and would round the wrong way
+  return { total, done, part, fail, sumPct, frac, pct };
+}
+function tally(ds, list) {   // one day: how much of this list was done?
+  let sum = 0, done = 0, part = 0, fail = 0;
+  list.forEach(p => { const r = resOf(ds, p); sum += r.pct; if (r.k === 'v') done++; else if (r.k === 'p') part++; else if (r.k === 'x') fail++; });
+  return mkStat(sum, list.length, done, part, fail);
+}
+const fracTxt = (done, total, part) => `${done}/${total}` + (part ? ` +${part}◐` : '');   // "3/5", or "3/5 +1◐" when one more was done in part
+function itemMark(ds, p) {   // small marks after an activity's name in the day report: 60% / ✗ / 📝
+  const r = resOf(ds, p), hasNote = !!noteOf(ds, p);
+  return (r.k === 'p' ? ` <b class="rp-m part">${r.pct}%</b>` : r.k === 'x' ? ' <b class="rp-m fail">✗</b>' : '') + (hasNote ? ' <span class="rp-n" aria-hidden="true">📝</span>' : '');
+}
 function setRes(ds, p, k, pct) {   // k: 'v' | 'x' | 'p' | '' (clear). A note already saved on this day is always kept.
   logs[ds] = logs[ds] || {};
   const old = logs[ds][p.id], n = (old && typeof old === 'object' && typeof old.n === 'string') ? old.n : '';
@@ -250,6 +271,7 @@ const dayLabel = ds => {
 const subDone = (ds, p, sid) => !!(logs[ds] && logs[ds][p.id] && logs[ds][p.id][sid]);
 
 /* ---------- streaks & motivation ---------- */
+// Both streaks use isDone = a FULL ✓ only. A ✗ or a 1-99% result breaks the streak (Phase 3A part 4: confirmed, no change needed).
 function streakUpTo(d) { // app-wide: every applicable task done, how many days in a row
   // Today is still in progress, so an unfinished TODAY does not break the streak:
   // we simply start counting from yesterday (this fixes "streak is 0 every morning").
@@ -416,7 +438,7 @@ function cardFootHtml(p, ds) {
   const wk = periodStats(p, fmt(wkStart), ds0);
   return `<div class="card-foot">
     <span class="cf-stat">🔥 ${programStreak(p)}</span>
-    <span class="cf-stat">✓ ${wk.total ? Math.round(wk.pct * 100) : 0}%</span>
+    <span class="cf-stat">✓ ${wk.pct}%</span>
     <span class="cf-spacer"></span>
     ${p.type !== 'checklist' ? `<button type="button" class="cf-btn cf-res" data-res="${p.id}" aria-label="ውጤት ምረጥ">ውጤት</button>` : ''}
     <button type="button" class="cf-btn cf-note${noteOf(ds, p) ? ' has-note' : ''}" data-note="${p.id}" aria-label="ማስታወሻ">📝</button>
@@ -457,17 +479,16 @@ function render() {
   const ds = fmt(sel), all = tasksFor(sel);
   const dayPrograms = all.filter(p => Array.isArray(p.schedule));
   const dailyPrograms = all.filter(p => p.schedule === 'daily');
-  const doneAll = all.filter(p => isDone(ds, p));
   // the ring and reports count ONLY the activities this person can see
-  const ringAll = all, ringDone = doneAll;
-  const CIRC = 2 * Math.PI * 26, pct = ringAll.length ? ringDone.length / ringAll.length : 0;
+  const T = tally(ds, all), pct = T.frac;   // Phase 3A part 4: the real percent (60% counts as 60); pct is exactly 1 only when every activity is a full ✓
+  const CIRC = 2 * Math.PI * 26;
 
   const editable = dayEditable(ds);
   document.body.classList.toggle('day-locked', !editable);
   $('dLbl').textContent = WD[sel.getDay()] + (editable ? '' : ' 🔒');
   $('dSub').textContent = sel.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   const rf = $('ringFill'); rf.style.strokeDasharray = CIRC; rf.style.strokeDashoffset = CIRC * (1 - pct);
-  $('ringText').innerHTML = `<b>${Math.round(pct * 100)}%</b><br>${ringDone.length} ከ ${ringAll.length} ተጠናቅቋል`;
+  $('ringText').innerHTML = `<b>${T.pct}%</b><br>${T.done} ከ ${T.total} ተጠናቅቋል${T.part ? ` · ${T.part} በከፊል` : ''}`;
 
   const byIncomplete = (a, b) => isDone(ds, a) - isDone(ds, b);
   $('list').innerHTML =
@@ -475,45 +496,52 @@ function render() {
     (dailyPrograms.length ? '<div class="sect-lbl">ዕለታዊ ማሳሰቢያ</div>' + dailyPrograms.slice().sort(byIncomplete).map(p => card(p, ds)).join('') : '') +
     (!all.length ? '<div class="sect-lbl">ምንም ፕሮግራም የለም — ከላይ ባለው ＋ ይጨምሩ</div>' : '');
 
-  drawDayReport(ds, ringAll, ringDone, pct);
+  drawDayReport(ds, all, T);
   drawWeek();
 
   if (lastPct !== null && pct === 1 && lastPct < 1) celebrate();
   lastPct = pct;
 }
 
-function drawDayReport(ds, all, doneAll, pct) {
-  const left = all.filter(p => !isDone(ds, p));
+function drawDayReport(ds, all, T) {
+  const left = all.filter(p => !isDone(ds, p)), doneAll = all.filter(p => isDone(ds, p));   // "left" = not a full ✓ yet (✗, a % and untouched ones)
   const streak = streakUpTo(today());
+  const li = p => `<li>${esc(disp(p, ds).name)}${itemMark(ds, p)}</li>`;
   $('dayReportPanel').innerHTML =
-    `<div class="week-total">${Math.round(pct * 100)}% — ${motivate(pct)}</div>` +
+    `<div class="week-total">${T.pct}% — ${motivate(T.frac)}</div>` +
     `<div class="streak">🔥 ${streak} ቀን ተከታታይ ሙሉ ማጠናቀቅ</div>` +
     (left.length
-      ? `<div class="rep-h">የቀሩ (${left.length})</div><ul class="rep-list">` + left.map(p => `<li>${esc(disp(p, ds).name)}</li>`).join('') + '</ul>'
+      ? `<div class="rep-h">የቀሩ (${left.length})</div><ul class="rep-list">` + left.map(li).join('') + '</ul>'
       : `<div class="rep-h done">ሁሉንም ዛሬ አጠናቅቀሃል! 🎉</div>`) +
-    (doneAll.length ? `<div class="rep-h done">የተጠናቀቀ (${doneAll.length})</div><ul class="rep-list done">` + doneAll.map(p => `<li>${esc(disp(p, ds).name)}</li>`).join('') + '</ul>' : '');
+    (doneAll.length ? `<div class="rep-h done">የተጠናቀቀ (${doneAll.length})</div><ul class="rep-list done">` + doneAll.map(li).join('') + '</ul>' : '');
 }
 
 function drawWeek() {
   const mon = new Date(sel); mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
-  let td = 0, tt = 0, rows = '', winDays = 0;
-  const stats = {};
+  let sumAll = 0, tt = 0, dn = 0, pt = 0, winDays = 0;
+  const stats = {}, days = [];
   for (let i = 0; i < 7; i++) {
     const d = new Date(mon); d.setDate(mon.getDate() + i); const ds = fmt(d);
-    const tasks = tasksFor(d), doneList = tasks.filter(p => isDone(ds, p)), n = doneList.length;
-    td += n; tt += tasks.length;
-    if (tasks.length && n === tasks.length) winDays++;
-    const pct = tasks.length ? n / tasks.length : 0;
-    const cls = pct >= 0.8 ? 'hi' : pct >= 0.4 ? 'mid' : 'lo';
-    rows += `<div class="week-row"><span class="wname">${WD[d.getDay()]}</span><div class="week-bar"><i class="${cls}" style="width:${tasks.length ? 100 * n / tasks.length : 0}%"></i></div><span class="week-frac">${n}/${tasks.length}</span></div>`;
+    const tasks = tasksFor(d), T = tally(ds, tasks);
+    sumAll += T.sumPct; tt += T.total; dn += T.done; pt += T.part;
+    if (T.total && T.done === T.total) winDays++;   // a "full day" needs every activity a full ✓
+    days.push({ name: WD[d.getDay()], T });
     tasks.forEach(p => {
-      stats[p.id] = stats[p.id] || { name: disp(p, ds).name, done: 0, total: 0 };
-      stats[p.id].total++; if (isDone(ds, p)) stats[p.id].done++;
+      const r = resOf(ds, p);
+      const st = stats[p.id] = stats[p.id] || { name: disp(p, ds).name, done: 0, part: 0, total: 0, sum: 0 };
+      st.total++; st.sum += r.pct; if (r.k === 'v') st.done++; else if (r.k === 'p') st.part++;
     });
   }
-  const weak = Object.values(stats).filter(s => s.total > 0 && s.done / s.total < 0.6).sort((a, b) => (a.done / a.total) - (b.done / b.total)).slice(0, 3);
-  $('weekPanel').innerHTML = `<div class="week-total">ጠቅላላ የሳምንቱ ውጤት፡ ${tt ? Math.round(100 * td / tt) : 0}% · 🔥 ${winDays}/7 ሙሉ ቀናት</div>` + rows +
-    (weak.length ? `<div class="rep-h">ትኩረት የሚፈልጉ</div><ul class="rep-list">` + weak.map(w => `<li>${esc(w.name)} — ${w.done}/${w.total}</li>`).join('') + '</ul>' : '');
+  const wide = pt > 0 ? ' wide' : '';   // a day with a partial result needs a little more room for its "+1◐"
+  const rows = days.map(({ name, T }) => {
+    const cls = T.frac >= 0.8 ? 'hi' : T.frac >= 0.4 ? 'mid' : 'lo';
+    return `<div class="week-row${wide}"><span class="wname">${name}</span><div class="week-bar"><i class="${cls}" style="width:${100 * T.frac}%"></i></div><span class="week-frac">${fracTxt(T.done, T.total, T.part)}</span></div>`;
+  }).join('');
+  const W = mkStat(sumAll, tt, dn, pt, 0);
+  const weak = Object.values(stats).filter(s => s.total > 0 && s.sum / (100 * s.total) < 0.6).sort((a, b) => (a.sum / a.total) - (b.sum / b.total)).slice(0, 3);
+  $('weekPanel').innerHTML = `<div class="week-total">ጠቅላላ የሳምንቱ ውጤት፡ ${W.pct}% · 🔥 ${winDays}/7 ሙሉ ቀናት</div>` + rows +
+    (pt ? `<div class="rep-note">◐ = በከፊል የተሰራ (መቶኛ)</div>` : '') +
+    (weak.length ? `<div class="rep-h">ትኩረት የሚፈልጉ</div><ul class="rep-list">` + weak.map(w => `<li>${esc(w.name)} — ${fracTxt(w.done, w.total, w.part)}</li>`).join('') + '</ul>' : '');
 }
 
 function pop(sel) { const el = $('list').querySelector(sel); if (el) { el.classList.add('pop'); setTimeout(() => el.classList.remove('pop'), 350); } }
@@ -825,9 +853,15 @@ function calendarTabHtml(p) {
     const dt = new Date(y, m, d), ds = fmt(dt);
     const isToday = ds === ds0;
     const na = !appliesOn(p, dt) || ds < p.createdAt;
-    let cls = 'na';
-    if (!na) cls = isDone(ds, p) ? 'done' : (dt > t ? 'upcoming' : 'missed');
-    cells += `<div class="cal-cell ${cls}${isToday ? ' today' : ''}">${d}</div>`;
+    let cls = 'na', sty = '';
+    if (!na) {
+      const r = resOf(ds, p);   // ✓ done · % partly (the circle fills up to that percent) · ✗ marked not done · nothing marked
+      if (r.k === 'v') cls = 'done';
+      else if (r.k === 'p') { cls = 'part'; sty = ` style="--p:${r.pct}"`; }
+      else if (r.k === 'x') cls = 'fail';
+      else cls = dt > t ? 'upcoming' : 'missed';
+    }
+    cells += `<div class="cal-cell ${cls}${isToday ? ' today' : ''}${noteOf(ds, p) ? ' has-note' : ''}"${sty}>${d}</div>`;
   }
   let monthLabel;
   try { monthLabel = calMonth.toLocaleDateString('am-ET', { month: 'long', year: 'numeric' }); }
@@ -835,7 +869,7 @@ function calendarTabHtml(p) {
   return `
     <div class="cal-nav"><button type="button" id="calPrev">‹</button><b>${esc(monthLabel)}</b><button type="button" id="calNext">›</button></div>
     <div class="cal-grid">${['ሰኞ', 'ማክ', 'ረቡ', 'ሐሙ', 'አር', 'ቅዳ', 'እሁ'].map(l => `<div class="cal-wd">${l}</div>`).join('')}${cells}</div>
-    <div class="cal-legend"><span><i class="done"></i>ተጠናቅቋል</span><span><i class="missed"></i>አልተጠናቀቀም</span><span><i class="upcoming"></i>ገና አልደረሰም</span></div>
+    <div class="cal-legend"><span><i class="done"></i>ተጠናቅቋል</span><span><i class="part"></i>በከፊል</span><span><i class="fail"></i>✗ አልተጠናቀቀም</span><span><i class="missed"></i>ምልክት አልተደረገም</span><span><i class="upcoming"></i>ገና አልደረሰም</span><span><i class="note"></i>📝 ማስታወሻ</span></div>
     <div class="detail-desc glass"><h4>ዝርዝር መግለጫ</h4>${descHtml(p.desc)}</div>${notesHistoryHtml(p)}`;
 }
 
@@ -850,17 +884,20 @@ function notesHistoryHtml(p) {
     (rows.length > SHOW ? `<div class="nh-more">… +${rows.length - SHOW}</div>` : '') + `</div>`;
 }
 
-function periodStats(p, fromDs, toDs) {
-  let done = 0, total = 0;
+function periodStats(p, fromDs, toDs) {   // -> mkStat(): total days, full ✓ days, partly days, ✗ days, and the real percent (pct = whole number to show)
+  let sum = 0, done = 0, part = 0, fail = 0, total = 0;
   let cur = parseDs(fromDs); const end = parseDs(toDs);
   while (cur <= end) {
     if (appliesOn(p, cur)) {
       const ds = fmt(cur);
-      if (ds >= p.createdAt) { total++; if (isDone(ds, p)) done++; }
+      if (ds >= p.createdAt) {
+        total++; const r = resOf(ds, p); sum += r.pct;
+        if (r.k === 'v') done++; else if (r.k === 'p') part++; else if (r.k === 'x') fail++;
+      }
     }
     cur.setDate(cur.getDate() + 1);
   }
-  return { done, total, pct: total ? done / total : 0 };
+  return mkStat(sum, total, done, part, fail);
 }
 
 function statsTabHtml(p) {
@@ -869,8 +906,9 @@ function statsTabHtml(p) {
   for (let i = 6; i >= 0; i--) {
     const d = new Date(t); d.setDate(d.getDate() - i); const ds = fmt(d);
     const na = !appliesOn(p, d) || ds < p.createdAt;
-    const cls = na ? 'na' : (isDone(ds, p) ? 'done' : (d.getTime() < t.getTime() ? 'missed' : 'na'));
-    trend += `<div class="trend-cell"><span>${PDAY_LABELS[(d.getDay() + 6) % 7][0]}</span><div class="trend-dot ${cls}">${cls === 'done' ? '✓' : ''}</div></div>`;
+    const r = na ? { k: '', pct: 0 } : resOf(ds, p);
+    const cls = na ? 'na' : r.k === 'v' ? 'done' : r.k === 'x' ? 'fail' : r.k === 'p' ? 'part' : (d.getTime() < t.getTime() ? 'missed' : 'na');
+    trend += `<div class="trend-cell"><span>${PDAY_LABELS[(d.getDay() + 6) % 7][0]}</span><div class="trend-dot ${cls}">${cls === 'done' ? '✓' : cls === 'fail' ? '✗' : cls === 'part' ? r.pct : ''}</div></div>`;
   }
   const wkStart = new Date(t); wkStart.setDate(t.getDate() - ((t.getDay() + 6) % 7));
   const moStart = new Date(t.getFullYear(), t.getMonth(), 1);
@@ -886,12 +924,13 @@ function statsTabHtml(p) {
   return `
     <div class="streak-card">
       <div class="glass"><b>${programStreak(p)}</b><span>🔥 ተከታታይ ቀናት</span></div>
-      <div class="glass"><b>${Math.round(allTime.pct * 100)}%</b><span>ጠቅላላ ውጤት</span></div>
+      <div class="glass"><b>${allTime.pct}%</b><span>ጠቅላላ ውጤት</span></div>
     </div>
     <div class="trend-row">${trend}</div>
     ${rows.map(([label, s]) => `
-      <div class="stat-row"><div class="stat-row-h"><span>${esc(label)}</span><b>${s.total ? Math.round(s.pct * 100) + '% (' + s.done + '/' + s.total + ')' : '—'}</b></div>
-      <div class="stat-bar"><i style="width:${Math.round(s.pct * 100)}%"></i></div></div>`).join('')}`;
+      <div class="stat-row"><div class="stat-row-h"><span>${esc(label)}</span><b>${s.total ? s.pct + '% (' + fracTxt(s.done, s.total, s.part) + ')' : '—'}</b></div>
+      <div class="stat-bar"><i style="width:${s.pct}%"></i></div></div>`).join('')}
+    ${rows.some(([, s]) => s.part) ? '<div class="rep-note">◐ = በከፊል የተሰራ (መቶኛ)</div>' : ''}`;
 }
 
 function editTabHtml(p) {
