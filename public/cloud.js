@@ -1,4 +1,4 @@
-/* Tesnim cloud add-on: login + automatic sync + roles + offline-safe sync (Phase 2) + grouped assign list (Phase 3A part 1) + safe first login (Phase 3A part 2). Edit ONLY the two lines below. */
+/* Tesnim cloud add-on: login + automatic sync + roles + offline-safe sync (Phase 2) + grouped assign list (Phase 3A part 1) + safe first login (Phase 3A part 2) + header avatar & profile page (Bundle A part 3) + one group per category spelling (Bundle A part 4). Edit ONLY the two lines below. */
 (function () {
   'use strict';
   var SB_URL = 'https://xdjfiiuqiecntyuarvkq.supabase.co', SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhkamZpaXVxaWVjbnR5dWFydmtxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA3NDM2NDcsImV4cCI6MjEwNjMxOTY0N30.kyiKWvh8OvQQG7vVtLHddc-Sksk_2U3ZVI42o3V51as';
@@ -7,7 +7,7 @@
   var PERMS = [['add', '＋ መጨመር'], ['edit', '✎ አርትዕ'], ['del', '🗑 መሰረዝ'], ['trash', '♻ ቆሻሻ መጣያ'], ['dash', '◔ አጠቃላይ ውጤት'], ['rep', '📋 ሪፖርቶች'], ['set', '⚙ ቅንብሮች'], ['stat', '📊 ስታትስቲክስ'], ['cal', '📅 ቀን መቁጠሪያ'], ['tick', '✓ ምልክት ማድረግ'], ['past', '🕘 ያለፉ ቀናትን ማስተካከል']];
   var ROLES = [['member', '👤 አባል (ምልክት ብቻ)', 'tick,dash,rep,stat,cal'], ['viewer', '👁 ተመልካች (ማየት ብቻ)', 'dash,rep,stat,cal'], ['history', '🕘 ታሪክ አራሚ', 'tick,past,dash,rep,stat,cal'], ['editor', '✎ አርታኢ', 'add,edit,del,trash,dash,rep,set,stat,cal,tick'], ['custom', '⚙ ብጁ', '']];
   var ls = window.localStorage, rawSet = Storage.prototype.setItem, rawRem = Storage.prototype.removeItem;
-  var tok = ls.getItem('tesnim_token'), me = null, cur = { sv: 0, mv: 0, lv: 0 }, ready = false, timer = null, prev = {}, net = true, polling = false, gen = 0, dirty = { s: 0, m: 0 };
+  var lastOk = 0, tok = ls.getItem('tesnim_token'), me = null, cur = { sv: 0, mv: 0, lv: 0 }, ready = false, timer = null, prev = {}, net = true, polling = false, gen = 0, dirty = { s: 0, m: 0 };
   window.TESNIM_ALL_PROGRAMS = null; ls.removeItem('tesnim_allprogs'); // Phase 1: a phone never holds other people's activities
   var $ = function (id) { return document.getElementById(id); };
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>\"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
@@ -63,11 +63,18 @@
   }
   function pend() { return !!(logDiff() || dirty.m || (canShared() && dirty.s)); }   // anything not yet sent to the cloud?
   function pendCount() { var df = logDiff(), n = 0; if (df) Object.keys(df.ch).forEach(function (d) { n += Object.keys(df.ch[d]).length; }); return n; }
-  function status() {   // the small "offline / waiting to send" label next to your name
-    var s = $('cl-st'); if (!s) return;
-    var n = pendCount(), off = !net || navigator.onLine === false;
-    s.textContent = off ? '📴 ከመስመር ውጭ' + (n ? ' · ⏳' + n : '') : (n ? '⏳ ' + n : '');
-    s.style.display = (off || n) ? '' : 'none';
+  function syncInfo() { var n = pendCount(), off = !net || navigator.onLine === false; return { n: n, off: off, st: off ? 'off' : (n ? 'pend' : 'ok') }; }
+  function hhmm(t) { var d = new Date(t); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
+  function stText(i) { return i.off ? '📴 ከመስመር ውጭ' + (i.n ? ' · ⏳ ' + i.n + ' ያልተላኩ ለውጦች' : '') : (i.n ? '⏳ ' + i.n + ' ለውጥ ለመላክ ይጠብቃል' : '✅ ተመሳስሏል'); }
+  function status() {   // the small coloured dot on the header avatar: green = synced, amber + number = waiting to send, grey = offline
+    if (!me) return;
+    var i = syncInfo(), a = $('cl-av');
+    if (a) {
+      a.setAttribute('data-st', i.st); a.setAttribute('aria-label', 'መገለጫ · ' + me.username + ' · ' + stText(i));
+      var b = a.querySelector('.av-n'); if (b) { b.textContent = i.n > 99 ? '99+' : String(i.n); b.hidden = !i.n; }
+    }
+    var p = $('clp-sync');   // same info on the profile page, if it is open
+    if (p) p.innerHTML = '<i class="clp-dot" data-st="' + i.st + '"></i><span>' + stText(i) + (lastOk ? '<small>ለመጨረሻ ጊዜ የተመሳሰለው፡ ' + hhmm(lastOk) + '</small>' : '') + '</span>';
   }
   function overlay(base, ch) {   // put my unsent ticks on top of the server's log (null = I un-ticked it)
     var o = JSON.parse(JSON.stringify(base || {}));
@@ -92,7 +99,7 @@
       if (r.rej && r.rej.length) refused();
     }));
     if (!jobs.length) { status(); return; }
-    Promise.all(jobs).then(function () { net = true; status(); }).catch(function (e) {
+    Promise.all(jobs).then(function () { net = true; lastOk = Date.now(); status(); }).catch(function (e) {
       if (e && /auth/.test(e.message)) { ls.removeItem('tesnim_token'); return location.reload(); }
       net = false; status(); clearTimeout(timer); timer = setTimeout(push, 15000);   // offline: keep the ticks, try again soon
     });
@@ -122,10 +129,10 @@
   }
   function safe() {
     var a = document.activeElement;
-    return !timer && !pend() && !(a && /INPUT|TEXTAREA/.test(a.tagName)) && !document.querySelector('.overlay.open,#detailView.open');
+    return !timer && !pend() && !(a && /INPUT|TEXTAREA/.test(a.tagName)) && !document.querySelector('.overlay.open,#detailView.open,#cl-prof.open');
   }
   function classes() {
-    var b = document.body; b.classList.add('cloud', 'pb');
+    var b = document.body; b.classList.add('cloud');
     if (me.is_admin) b.classList.add('is-admin');
     else PERMS.forEach(function (p) { if (!permOn(p[0])) b.classList.add('no-' + p[0]); });
   }
@@ -143,7 +150,7 @@
     if (!ready || !tok) return;
     if (pend()) { kick(); return; }   // send my own changes first, then look for new ones
     api('app_get', { p_tok: tok }).then(function (n) {
-      net = true; me = n.user; saveMe(); var old = cur; cur = { sv: n.sv, mv: n.mv, lv: n.lv };
+      net = true; lastOk = Date.now(); me = n.user; saveMe(); var old = cur; cur = { sv: n.sv, mv: n.mv, lv: n.lv };
       if (ls.getItem('tesnim_cv') !== sig()) { if (safe()) { apply(n); location.reload(); } else cur = old; }
       status();
     }).catch(function (e) { if (/auth/.test(e.message)) { ls.removeItem('tesnim_token'); location.reload(); } else { net = false; status(); } });
@@ -178,12 +185,11 @@
 
   // ---------- UI ----------
   var css = document.createElement('style');
-  css.textContent = '.pb{padding-bottom:64px}' +
+  css.textContent = '' +
     '#cl-veil,#cl-login,#cl-admin{position:fixed;inset:0;z-index:60;background:#0c2a20;color:#eaf3e6;font-family:inherit;overflow-y:auto}' +
     '#cl-login{display:flex;align-items:center;justify-content:center;padding:24px}#cl-login form{width:100%;max-width:340px;display:flex;flex-direction:column;gap:12px}' +
     '#cl-login h2,#cl-admin h2{margin:0 0 6px;font-size:22px}.cl-in{padding:14px;border-radius:14px;border:1px solid #ffffff33;background:#ffffff14;color:#fff;font-size:16px;width:100%;box-sizing:border-box}' +
     '.cl-btn{padding:13px 16px;border-radius:14px;border:0;background:#ffba00;color:#3b2a00;font-weight:700;font-size:15px}.cl-btn.g{background:#ffffff22;color:#fff}.cl-btn.r{background:#c0392b;color:#fff}' +
-    '#cl-chip{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);z-index:30;display:flex;gap:8px;align-items:center;padding:6px 8px 6px 14px;border-radius:99px;background:#0c2a20ee;color:#eaf3e6;font-size:13px;box-shadow:0 2px 12px #0006}#cl-chip button{border:0;border-radius:99px;padding:7px 12px;background:#ffffff22;color:#fff;font-size:13px}' +
     '#cl-admin .in{max-width:560px;margin:0 auto;padding:20px 16px 60px}.cl-row{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:12px;margin:8px 0;border-radius:14px;background:#ffffff14}' +
     '.cl-chk{display:flex;gap:10px;align-items:center;padding:7px 0;font-size:15px}.cl-chk input{width:20px;height:20px}#cl-err{color:#ff9d8f;min-height:18px;font-size:14px}.cl-box{max-height:55vh;overflow-y:auto;padding:6px;border-radius:12px;background:#ffffff0d}' +
     'body:not(.is-admin) #importBtn,body:not(.is-admin) #exportBtn{display:none}.no-add #addBtn,.no-add #addPageBtn{display:none}.no-edit .edit,.no-edit [data-pgedit],.no-edit .dtab[data-tab=edit]{display:none}' +
@@ -206,17 +212,62 @@
 .cl-gt{flex:1;min-width:0;display:flex;align-items:center;gap:8px;padding:10px 0;border:0;background:none;color:inherit;font:inherit;font-size:15px;text-align:start;cursor:pointer}
 .cl-gt b{overflow-wrap:anywhere}.cl-gc{opacity:.7;font-size:12px;white-space:nowrap}.cl-car{opacity:.8;width:14px;flex:none}
 .cl-gb{padding:0 12px}.cl-gb .cl-chk{align-items:flex-start}.cl-gb .cl-chk>span{line-height:1.5}
-.cl-wd{display:inline-block;padding:1px 9px;margin-inline-start:4px;border-radius:99px;background:rgba(255,255,255,.18);font-size:11px;white-space:nowrap}
-#cl-chip{padding:7px;gap:10px;background:rgba(12,42,32,.55);border:1px solid rgba(255,255,255,.25);-webkit-backdrop-filter:blur(18px) saturate(160%);backdrop-filter:blur(18px) saturate(160%);box-shadow:0 10px 30px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.25)}
-#cl-chip .av{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:700;background:linear-gradient(145deg,#ffd760,#e79a00);color:#3b2a00}
-#cl-st{font-size:12px;opacity:.9;white-space:nowrap}#cl-chip .nm{display:flex;flex-direction:column;line-height:1.15;font-weight:600}#cl-chip .nm small{font-size:10px;opacity:.7;font-weight:400}`;
+.cl-wd{display:inline-block;padding:1px 9px;margin-inline-start:4px;border-radius:99px;background:rgba(255,255,255,.18);font-size:11px;white-space:nowrap}`;
   document.head.appendChild(css);
   function el(id, html) { var d = document.createElement('div'); d.id = id; d.innerHTML = html || ''; document.body.appendChild(d); return d; }
   function unveil() { var v = $('cl-veil'); if (v) v.remove(); }
-  function chip() {
-    el('cl-chip', '<span class="av">' + esc(me.username.charAt(0).toUpperCase()) + '</span><span class="nm">' + esc(me.username) + '<small>' + (me.is_admin ? 'አስተዳዳሪ' : 'ተጠቃሚ') + '</small></span><span id="cl-st" style="display:none"></span>' + (me.is_admin ? '<button id="cl-adm">👑 ተጠቃሚዎች</button>' : '') + '<button id="cl-out">ውጣ</button>');
-    $('cl-out').onclick = logout; if (me.is_admin) $('cl-adm').onclick = admin;
+  // ---------- Bundle A part 3: the old bottom name bar is now a small round avatar in the header + a full-screen profile page ----------
+  var AL_KEY = 'tesnim_autologout', lastAct = Date.now();
+  var AL_OPTS = [[0, 'አይኖርም'], [5, '5 ደቂቃ'], [15, '15 ደቂቃ'], [30, '30 ደቂቃ'], [60, '1 ሰዓት']];
+  function alMin() { var v = parseInt(ls.getItem(AL_KEY), 10); return v > 0 ? v : 0; }
+  function initial() { return (Array.from(String(me.username || '?').trim())[0] || '?').toUpperCase(); }
+  function roleLabel() {
+    if (me.is_admin) return 'አስተዳዳሪ';
+    var r = me.perms && me.perms.role, f = ROLES.filter(function (x) { return x[0] === r && r !== 'custom'; })[0];
+    return f ? f[1] : 'ተጠቃሚ';
   }
+  function closeProfile() { var o = $('cl-prof'); if (o) o.remove(); }
+  function openProfile() {
+    closeProfile();
+    var pg = el('cl-prof', '<div class="detail-head"><button type="button" class="arrow" id="clp-back" aria-label="ተመለስ">‹</button><div class="detail-title">መገለጫ</div></div>' +
+      '<div class="detail-body">' +
+      '<div class="clp-who glass"><span class="clp-av">' + esc(initial()) + '</span><div><div class="clp-name">' + esc(me.username) + '</div><div class="clp-role">' + esc(roleLabel()) + '</div></div></div>' +
+      '<div class="clp-card glass"><div class="clp-h">ማመሳሰል</div><div class="clp-sync" id="clp-sync"></div><button type="button" class="clp-btn" id="clp-now">🔄 አሁን አመሳስል</button></div>' +
+      '<div class="clp-card glass"><div class="clp-h">ገፅታ</div><button type="button" class="clp-btn" id="clp-theme">◐ ብሩህ / ጨለማ ቀይር</button></div>' +
+      '<div class="clp-card glass"><div class="clp-h">በራስ-ሰር መውጣት</div><p class="clp-p">ለዚህ ያህል ጊዜ ምንም ካልነኩ ከመለያዎ በራስ-ሰር ይወጣል። ያልተላኩ ለውጦች ካሉ ወይም ኢንተርኔት ከሌለ ግን አይወጣም — ምንም አይጠፋም።</p>' +
+      '<select class="clp-sel" id="clp-al" aria-label="በራስ-ሰር መውጣት">' + AL_OPTS.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === alMin() ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
+      (me.is_admin ? '<button type="button" class="clp-btn wide" id="clp-users">👑 ተጠቃሚዎች</button>' : '') +
+      '<button type="button" class="clp-btn wide danger" id="clp-out">ውጣ</button></div>');
+    pg.className = 'detail open'; pg.setAttribute('role', 'dialog'); pg.setAttribute('aria-modal', 'true'); pg.setAttribute('aria-label', 'መገለጫ');
+    status();
+    $('clp-back').onclick = closeProfile;
+    $('clp-now').onclick = function () { kick(); pollNow(); status(); };
+    $('clp-theme').onclick = function () { var t = $('themeBtn'); if (t) t.click(); };
+    $('clp-al').onchange = function () { rawSet.call(ls, AL_KEY, String(parseInt(this.value, 10) || 0)); lastAct = Date.now(); };
+    if (me.is_admin) $('clp-users').onclick = admin;
+    var out = $('clp-out'), armed = 0;   // two taps to log out, so one accidental touch never does it
+    out.onclick = function () {
+      if (!armed) { armed = 1; out.textContent = 'እርግጠኛ ነዎት? እንደገና ይንኩ'; setTimeout(function () { armed = 0; if (out.isConnected) out.textContent = 'ውጣ'; }, 4000); return; }
+      logout();
+    };
+  }
+  function chip() {   // (name kept for its callers) builds the round avatar button in the header
+    ['cl-av', 'cl-prof', 'cl-chip'].forEach(function (id) { var o = $(id); if (o) o.remove(); });
+    var tools = document.querySelector('.tools'); if (!tools) return;
+    var b = document.createElement('button'); b.id = 'cl-av'; b.type = 'button'; b.className = 'avbtn'; b.setAttribute('data-st', 'ok');
+    b.innerHTML = '<span class="av-l">' + esc(initial()) + '</span><i class="av-dot"></i><b class="av-n" hidden></b>';
+    b.onclick = openProfile; tools.appendChild(b); status();
+  }
+  // auto-logout: only when it is safe (online, nothing unsent), so it can never throw away ticks or strand a phone with no internet
+  function idleCheck() {
+    var m = alMin(); if (!m || !me || !ready) return;
+    if (Date.now() - lastAct < m * 60000) return;
+    if (!net || navigator.onLine === false || pend()) return;
+    logout();
+  }
+  ['touchstart', 'pointerdown', 'keydown', 'scroll', 'click'].forEach(function (t) { window.addEventListener(t, function () { lastAct = Date.now(); }, { passive: true, capture: true }); });
+  setInterval(idleCheck, 30000);
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') idleCheck(); });
   function login() {
     unveil();
     el('cl-login', '<form id="cl-f"><div class="lg-logo">🌿</div><h2>እንኳን ደህና መጡ</h2><p>ለመቀጠል ይግቡ</p><input class="cl-in" id="cl-u" placeholder="የተጠቃሚ ስም" autocapitalize="none" autocomplete="username"><input class="cl-in" id="cl-p" type="password" placeholder="የይለፍ ቃል" autocomplete="current-password"><div id="cl-err"></div><button class="cl-btn" type="submit">ግባ</button></form>');
@@ -231,14 +282,19 @@
   var DAYN = ['ሰኞ', 'ማክሰኞ', 'ረቡዕ', 'ሐሙስ', 'አርብ', 'ቅዳሜ', 'እሁድ'];   // 1=Mon ... 7=Sun (same numbers main.js uses)
   function dayNums(p) { return Array.isArray(p.schedule) ? p.schedule.map(Number).filter(function (n) { return n >= 1 && n <= 7; }).sort(function (a, b) { return a - b; }) : []; }
   function whenLabel(p) { var d = dayNums(p); return (!d.length || d.length >= 7) ? 'ዕለታዊ' : d.map(function (n) { return DAYN[n - 1]; }).join(' · '); }
+  function catClean(c) { return String(c == null ? '' : c).normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\s+/g, ' ').trim().slice(0, 30); }   // same rule as src/main.js: "ምግብ" and "ምግብ " are ONE category
   function groupProgs(progs) {   // [{name, none, items:[{p}]}] - groups in order of first appearance, "no category" last; inside a group: Mon..Sun, then daily
     var map = {}, order = [];
     progs.forEach(function (p, i) {
-      var c = String(p.category || '').trim(), k = c ? 'c:' + c : 'none', d = dayNums(p);
-      if (!map[k]) { map[k] = { name: c || 'ያለ ምድብ', none: !c, items: [] }; order.push(k); }
+      var c = catClean(p.category), k = c ? 'c:' + c.toLowerCase() : 'none', d = dayNums(p);
+      if (!map[k]) { map[k] = { name: c || 'ያለ ምድብ', none: !c, items: [], sp: {} }; order.push(k); }
+      if (c) map[k].sp[c] = (map[k].sp[c] || 0) + 1;
       map[k].items.push({ p: p, i: i, key: d.length && d.length < 7 ? d[0] : 8 });
     });
-    var gs = order.map(function (k) { return map[k]; });
+    var gs = order.map(function (k) {
+      var g = map[k], best = 0; Object.keys(g.sp).forEach(function (n) { if (g.sp[n] > best) { best = g.sp[n]; g.name = n; } });   // the spelling used most, like the main list
+      return g;
+    });
     gs.forEach(function (g) { g.items.sort(function (a, b) { return a.key - b.key || a.i - b.i; }); });
     return gs.filter(function (g) { return !g.none; }).concat(gs.filter(function (g) { return g.none; }));
   }
