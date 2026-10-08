@@ -1,4 +1,4 @@
-// Phase 3A part 4: the ring, reports, statistics and calendar understand ✗ / % / notes (60% counts as 60; the streak still needs a full ✓). Part 3: a note per activity per day (📝). Part 2: results ✓ done, ✗ not done, 1-99% partly done.
+// Categories (Bundle A part 4): one canonical name per category, a picker instead of free typing, rename / merge / delete for a whole category, grouped list. History safety (Bundle A parts 1-2): adding, deleting, restoring, re-scheduling, adding/removing sub-items or switching single <-> master never changes a day that is already over. Phase 3A part 4: the ring, reports, statistics and calendar understand ✗ / % / notes (60% counts as 60; the streak still needs a full ✓). Part 3: a note per activity per day (📝). Part 2: results ✓ done, ✗ not done, 1-99% partly done.
 import './style.css';
 import { MEALS as SEED_MEALS, DAILY as SEED_DAILY, INFO_PAGES as SEED_PAGES, WD } from './data.js';
 
@@ -18,6 +18,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const pDay = d => { const g = d.getDay(); return g === 0 ? 7 : g; }; // 1=Mon..7=Sun
 const uid = () => 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const $ = id => document.getElementById(id);
+let ghostCache = null;   // deleted activities that still count on the days before they were deleted (see countsOn)
 const PDAY_LABELS = ['ሰኞ', 'ማክሰኞ', 'ረቡዕ', 'ሐሙስ', 'አርብ', 'ቅዳሜ', 'እሁድ'];
 
 // The date this app first ever ran on this phone/browser. Used as the
@@ -99,7 +100,11 @@ function syncSeedPrograms() {
       programs.push({ ...seed, seed: true, customized: false, createdAt: FIRST_RUN });
     } else if (!programs[idx].customized) {
       // Not personally edited yet — safe to refresh its text/fields from data.js.
-      programs[idx] = { ...seed, seed: true, customized: false, createdAt: programs[idx].createdAt || FIRST_RUN };
+      const old = programs[idx];
+      // data.js moved this meal to other weekdays: days that are already over keep the old weekdays.
+      const sh = Array.isArray(old.sh) ? old.sh.slice() : [];
+      if (!sameSched(old.schedule, seed.schedule) && (old.createdAt || FIRST_RUN) < fmt(today()) && !(sh.length && sh[sh.length - 1].u === fmt(today()))) sh.push({ u: fmt(today()), s: copySched(old.schedule) });
+      programs[idx] = { ...seed, ...(old.catSet ? { category: old.category, catSet: true } : {}), seed: true, customized: false, createdAt: old.createdAt || FIRST_RUN, ...(sh.length ? { sh } : {}), ...(Array.isArray(old.off) ? { off: old.off } : {}), ...(Array.isArray(old.vh) ? { vh: old.vh } : {}) };
     }
     // If customized, it's the person's own now — data.js no longer touches it.
   });
@@ -122,7 +127,8 @@ if (isFirstRun) {
     });
   } catch (e) { /* ignore malformed old data */ }
 }
-const savePrograms = () => localStorage.setItem(LS_PROGRAMS, JSON.stringify(programs));
+programs.forEach(p => { if (p && !p.createdAt) p.createdAt = FIRST_RUN; });   // an activity with no start day starts on the day the app first ran (never "since the beginning of time")
+const savePrograms = () => { ghostCache = null; localStorage.setItem(LS_PROGRAMS, JSON.stringify(programs)); };
 savePrograms();
 
 let logs = JSON.parse(localStorage.getItem(LS_LOG) || '{}');       // logs[ds][id]: see "RESULTS" below
@@ -140,7 +146,58 @@ const toast = m => { const t = $('toast'); t.textContent = m; t.classList.add('s
    trash[i] = { id, kind:'program'|'page', data:<full saved object>, deletedAt }
    ============================================================ */
 let trash = JSON.parse(localStorage.getItem(LS_TRASH) || '[]');
-const saveTrash = () => localStorage.setItem(LS_TRASH, JSON.stringify(trash));
+/* ---------- CATEGORIES (Bundle A part 4) ----------
+   A category is the name written on its activities (it travels with them to every phone, so no server change is needed).
+   Two spellings that differ only by spaces / capital letters ("ምግብ" and "ምግብ ") are ONE category: catKey() is what is compared.
+   Everything that writes a category goes through canonCat(), so a duplicate can never be created again. */
+const LS_CATFOLD = 'tesnim_catfold';
+function catClean(s) { return String(s == null ? '' : s).normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\s+/g, ' ').trim().slice(0, 30); }
+const catKey = s => catClean(s).toLowerCase();
+function categories() {   // [{key, name, count}] in order of first appearance; name = the spelling used most
+  const map = new Map();
+  programs.forEach(p => {
+    const k = catKey(p.category); if (!k) return;
+    let g = map.get(k); if (!g) map.set(k, g = { key: k, sp: {}, count: 0 });
+    const n = catClean(p.category); g.count++; g.sp[n] = (g.sp[n] || 0) + 1;
+  });
+  return [...map.values()].map(g => ({ key: g.key, count: g.count, name: Object.entries(g.sp).sort((a, b) => b[1] - a[1])[0][0] }));
+}
+function canonCat(input) {   // what to store: the existing spelling if this category already exists, else the cleaned new name
+  const c = catClean(input); if (!c) return '';
+  const f = categories().find(x => x.key === catKey(c)); return f ? f.name : c;
+}
+let catFold = new Set(); try { catFold = new Set(JSON.parse(localStorage.getItem(LS_CATFOLD) || '[]')); } catch (e) { catFold = new Set(); }   // folded groups on THIS phone
+const saveFold = () => { try { localStorage.setItem(LS_CATFOLD, JSON.stringify([...catFold])); } catch (e) { /* storage full: folding just is not remembered */ } };
+function catPickInner(cur) {
+  const cats = categories(), key = catKey(cur), isNew = !!key && !cats.some(c => c.key === key);
+  return `<button type="button" class="catchip${!key ? ' active' : ''}" data-cat="">ያለ ምድብ</button>` +
+    cats.map(c => `<button type="button" class="catchip${c.key === key ? ' active' : ''}" data-cat="${esc(c.name)}">${esc(c.name)}</button>`).join('') +
+    `<button type="button" class="catchip${isNew ? ' active' : ''}" data-catnew="1">＋ አዲስ ምድብ</button>` +
+    `<input type="text" class="catnew" maxlength="30" placeholder="የአዲሱ ምድብ ስም" aria-label="የአዲሱ ምድብ ስም" value="${isNew ? esc(catClean(cur)) : ''}"${isNew ? '' : ' hidden'}>`;
+}
+const catPickHtml = (id, cur) => `<div class="catpick" id="${id}">${catPickInner(cur)}</div>`;
+const fillCat = (id, cur) => { $(id).innerHTML = catPickInner(cur); };
+function getCat(id) {   // the category chosen in the picker, ready to store ('' = none)
+  const box = $(id); if (!box) return '';
+  const on = box.querySelector('.catchip.active'); if (!on) return '';
+  return on.dataset.catnew !== undefined ? canonCat(box.querySelector('.catnew').value) : canonCat(on.dataset.cat || '');
+}
+document.addEventListener('click', e => {   // tapping a category chip (works in the add sheet, the quick edit and the Edit tab)
+  const ch = e.target.closest('.catpick .catchip'); if (!ch) return;
+  const box = ch.closest('.catpick'); box.querySelectorAll('.catchip').forEach(b => b.classList.toggle('active', b === ch));
+  const inp = box.querySelector('.catnew'), isNew = ch.dataset.catnew !== undefined; inp.hidden = !isNew; if (isNew) inp.focus();
+});
+function renameCat(key, to) {   // rename / merge / delete a whole category (to = '' moves its activities to "no category"); returns how many activities changed
+  const name = catClean(to); let target = name;
+  if (name) { const ex = categories().find(c => c.key === catKey(name)); if (ex && ex.key !== key) target = ex.name; }   // already exists: merge into its spelling
+  let n = 0;
+  const upd = (p, live) => { if (catKey(p.category) === key) { p.category = target; p.catSet = true; if (live) n++; } };   // catSet: a data.js refresh must never put the old category back
+  programs.forEach(p => upd(p, true));
+  trash.forEach(t => { if (t && t.kind === 'program' && t.data) upd(t.data, false); });   // so a restored activity does not bring back the old name
+  if (n) { savePrograms(); saveTrash(); }
+  return n;
+}
+const saveTrash = () => { ghostCache = null; localStorage.setItem(LS_TRASH, JSON.stringify(trash)); };
 function trashAdd(kind, data) {
   const entry = { id: uid(), kind, data, deletedAt: new Date().toISOString() };
   trash.unshift(entry); saveTrash(); updateTrashBadge();
@@ -170,8 +227,60 @@ function showUndo(message, restoreFn) {
 function hideUndo() { if (undoEl) undoEl.classList.remove('show'); }
 
 /* ---------- schedule / completion helpers ---------- */
-const appliesOn = (p, d) => p.schedule === 'daily' || (Array.isArray(p.schedule) && p.schedule.includes(pDay(d)));
-const tasksFor = d => programs.filter(p => appliesOn(p, d));
+/* ---------- WHICH ACTIVITIES COUNT ON WHICH DAY (one rule, used by the list, ring, reports, streaks, calendar and statistics) ----------
+   An activity counts on a day only if ALL of these are true:
+     1. its weekdays (as they were ON THAT DAY - see p.sh) include that weekday;
+     2. the day is on/after the day it was created - or something was really ticked / noted on that day (real history is never hidden);
+     3. it was not in the Recycle Bin that day (deleted activities keep counting on the days BEFORE they were deleted - see ghosts;
+        p.off = days it spent in the bin before being restored).
+   So adding, deleting, restoring or re-scheduling an activity never changes a day that is already over. */
+function copySched(s) { return Array.isArray(s) ? s.slice() : s; }
+function sameSched(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b)) return a === b;
+  const x = a.map(Number).sort(), y = b.map(Number).sort();
+  return x.length === y.length && x.every((v, i) => v === y[i]);
+}
+const schedOn = (p, ds) => { if (Array.isArray(p.sh)) for (const h of p.sh) if (h && ds < h.u) return h.s; return p.schedule; };   // p.sh = [{u:'2026-10-04', s:<weekdays before that day>}] oldest first
+const appliesOn = (p, d) => { const s = schedOn(p, fmt(d)); return s === 'daily' || (Array.isArray(s) && s.includes(pDay(d))); };
+function hasEntry(ds, p) {   // did the person really tick / mark / note this activity on this day?
+  const l = logs[ds] && logs[ds][p.id];
+  if (!l) return false;
+  return typeof l === 'object' ? Object.keys(l).some(k => l[k]) : true;
+}
+function assignedIds() {   // the activity ids the server gave this restricted user
+  try { const m = JSON.parse(localStorage.getItem('tesnim_me') || 'null'); if (m && Array.isArray(m.programs)) return new Set(m.programs); } catch (e) { /* none */ }
+  return new Set();
+}
+function ghosts() {   // activities that are in the Recycle Bin: they still count on the days before the day they were deleted
+  if (ghostCache) return ghostCache;
+  const live = new Set(programs.map(p => p.id)), seen = new Set(), mine = ROLE.r ? assignedIds() : null, out = [];
+  for (const t of trash) {   // newest deletion first
+    const p = t && t.kind === 'program' && t.data;
+    if (!p || !p.id || live.has(p.id) || seen.has(p.id)) continue;
+    seen.add(p.id);
+    const end = new Date(t.deletedAt); if (isNaN(end)) continue;
+    if (mine && !mine.has(p.id)) continue;   // a restricted phone must never show someone else's activity
+    out.push({ ...p, createdAt: p.createdAt || FIRST_RUN, ghost: true, endsOn: fmt(end) });
+  }
+  return ghostCache = out;
+}
+function countsOn(p, d) {
+  if (!appliesOn(p, d)) return false;
+  const ds = fmt(d);
+  if (p.endsOn && ds >= p.endsOn) return false;
+  if (Array.isArray(p.off) && p.off.some(g => g && ds >= g[0] && ds < g[1])) return false;
+  return ds >= p.createdAt || hasEntry(ds, p);
+}
+function firstDayOf(p) {   // the first day this activity can count: its start day, or an earlier day that really has a tick / note
+  let f = p.createdAt;
+  for (const ds in logs) if (ds < f && /^\d{4}-\d{2}-\d{2}$/.test(ds) && hasEntry(ds, p)) f = ds;
+  return f;
+}
+function reinstate(p, delDs) {   // put a deleted activity back: the days it spent in the bin stay "not counted"
+  const t = fmt(today());
+  if (delDs < t) p.off = (Array.isArray(p.off) ? p.off : []).concat([[delDs, t]]);
+}
+const tasksFor = d => programs.concat(ghosts()).filter(p => countsOn(p, d));
 const disp = (p, ds) => { const o = dayOv[ds] && dayOv[ds][p.id]; return o ? { ...p, ...o } : p; };
 /* ---------- RESULTS (Phase 3A part 2) ----------
    What is stored in logs[ds][id]:
@@ -195,15 +304,43 @@ function parseRes(l) {   // one stored value -> { k: '' | 'v' | 'x' | 'p', pct }
   }
   return { k: 'v', pct: 100 };   // any other stored value counts as done, exactly like before
 }
+/* ---------- THE SHAPE OF AN ACTIVITY ON A DAY (Bundle A part 2) ----------
+   An activity is either single (one ✓ / ✗ / %) or a master with sub-items. When the person adds or removes a sub-item, or
+   switches single <-> master, the NEW shape starts TODAY: p.vh keeps the shape the activity had before ("vh" = [{u:'2026-10-04', t:'checklist', s:[subItems]}],
+   oldest first; every day BEFORE u used that shape). at(p, ds) returns the activity as it was on that day, so old days are judged by their own sub-items.
+   Renaming a sub-item is not a change of shape. */
+function shapeOn(p, ds) { if (Array.isArray(p.vh)) for (const h of p.vh) if (h && ds < h.u) return h; return p; }
+function at(p, ds) {
+  const h = shapeOn(p, ds); if (h === p) return p;
+  const q = { ...p, type: h.t }; if (h.t === 'checklist') q.subItems = h.s; else delete q.subItems;
+  return q;
+}
+function subsObj(l, q) {   // a master day's value as an object of sub-ticks (a leftover single ✓ means every sub-item was done)
+  if (l && typeof l === 'object' && l.r === undefined) return l;
+  const o = {};
+  if (l === true || (l && l.r === 'v')) (q.subItems || []).forEach(s => { o[s.id] = true; });
+  if (l && typeof l === 'object' && typeof l.n === 'string') o.n = l.n;
+  return o;
+}
 function isDone(ds, p) {
+  p = at(p, ds);
   const l = logs[ds] && logs[ds][p.id];
   if (!l) return false;
-  if (p.type === 'checklist') return p.subItems.every(s => l[s.id] === true);
-  return parseRes(l).k === 'v';
+  if (p.type === 'checklist') {
+    if (l === true || l.r === 'v') return true;   // a leftover single ✓ from when this was one activity
+    return Array.isArray(p.subItems) && p.subItems.length > 0 && p.subItems.every(s => l[s.id] === true);
+  }
+  return resOf(ds, p).k === 'v';
 }
 function resOf(ds, p) {   // what to show for this activity on this day
+  p = at(p, ds);
   if (p.type === 'checklist') return isDone(ds, p) ? { k: 'v', pct: 100 } : { k: '', pct: 0 };
-  return parseRes(logs[ds] && logs[ds][p.id]);
+  const l = logs[ds] && logs[ds][p.id];
+  if (l && typeof l === 'object' && l.r === undefined) {   // a leftover master value on a single activity: done only if every sub-tick that was saved is on
+    const ks = Object.keys(l).filter(k => k !== 'n');
+    if (ks.length) return ks.every(k => l[k] === true) ? { k: 'v', pct: 100 } : { k: '', pct: 0 };
+  }
+  return parseRes(l);
 }
 /* ---------- SCORE (Phase 3A part 4) ----------
    How much was really done, as a percent: ✓ = 100, 60% = 60, ✗ or nothing = 0.
@@ -247,11 +384,12 @@ function noteOf(ds, p) {
   return (l && typeof l === 'object' && typeof l.n === 'string') ? l.n : '';
 }
 function setNote(ds, p, text) {   // text '' = remove the note. The ✓ / ✗ / % result (or the checklist ticks) is always kept.
+  p = at(p, ds);
   const t = cleanNote(text);
   logs[ds] = logs[ds] || {};
   const old = logs[ds][p.id];
   if (p.type === 'checklist') {
-    const o = (old && typeof old === 'object') ? { ...old } : {};
+    const o = { ...subsObj(old, p) };
     delete o.n; if (t) o.n = t;
     logs[ds][p.id] = (t || Object.keys(o).length) ? o : false;
     return;
@@ -278,7 +416,7 @@ function streakUpTo(d) { // app-wide: every applicable task done, how many days 
   let s = 0, cur = new Date(d);
   const t0 = tasksFor(cur);
   if (!t0.length || t0.some(p => !isDone(fmt(cur), p))) cur.setDate(cur.getDate() - 1);
-  while (true) {
+  for (let guard = 0; guard < 3660; guard++) {   // (10 years) the loop always ends at the first day with nothing to do
     const ds = fmt(cur), tasks = tasksFor(cur);
     if (!tasks.length || tasks.filter(p => isDone(ds, p)).length < tasks.length) break;
     s++; cur.setDate(cur.getDate() - 1);
@@ -287,10 +425,10 @@ function streakUpTo(d) { // app-wide: every applicable task done, how many days 
 }
 function programStreak(p) { // just this one program, how many days in a row
   let s = 0, cur = today();
-  const t0 = fmt(cur);
-  while (fmt(cur) >= p.createdAt) {
+  const t0 = fmt(cur), first = firstDayOf(p);
+  while (fmt(cur) >= first) {
     const ds = fmt(cur);
-    if (appliesOn(p, cur)) {
+    if (countsOn(p, cur)) {
       if (isDone(ds, p)) s++;
       else if (ds !== t0) break; // an unfinished TODAY is skipped, not counted as a break
     }
@@ -419,7 +557,7 @@ function weekStripHtml(p) {
   for (let i = 0; i < 7; i++) {
     const d = new Date(mon); d.setDate(mon.getDate() + i);
     const dds = fmt(d), isToday = dds === ds0;
-    const na = !appliesOn(p, d) || dds < p.createdAt;
+    const na = !countsOn(p, d);
     const rk = na ? '' : resOf(dds, p).k;
     const cls = na ? 'na' : (rk === 'v' ? 'done' : rk === 'x' ? 'fail' : rk === 'p' ? 'part' : 'due');
     cells += `<button type="button" class="wd-cell ${cls}${isToday ? ' today' : ''}"${na ? ' disabled' : ` data-wtick="${p.id}:${dds}"`} aria-label="${esc(PDAY_LABELS[i])}">${d.getDate()}</button>`;
@@ -447,6 +585,7 @@ function cardFootHtml(p, ds) {
   </div>`;
 }
 function card(p, ds) {
+  p = at(p, ds);   // a past day is drawn the way the activity looked on that day
   const t = disp(p, ds), done = isDone(ds, p), rs = resOf(ds, p);
   let subHtml = '';
   if (p.type === 'checklist') {
@@ -459,7 +598,7 @@ function card(p, ds) {
   return `<div class="card glass${done ? ' done-card' : ''}${p.type === 'checklist' ? ' master' : ''}">
     <div class="card-top">
       <div class="info opens-detail" data-open="${p.id}">
-        <div class="name">${esc(t.name)}${t.category ? `<span class="tag">${esc(t.category)}</span>` : ''}</div>
+        <div class="name">${esc(t.name)}</div>
         <div class="desc">${descHtml(t.desc)}</div>${subHtml}
       </div>
       <div class="actions">
@@ -474,11 +613,29 @@ function card(p, ds) {
   </div>`;
 }
 
+function groupedList(items, ds, byIncomplete) {   // the day's activities under their category headers (done/total + a fold arrow)
+  const cards = l => l.slice().sort(byIncomplete).map(p => card(p, ds)).join('');
+  const groups = categories().map(c => ({ key: c.key, name: c.name, items: items.filter(p => catKey(p.category) === c.key) })).filter(g => g.items.length);
+  if (!groups.length) return cards(items);   // nobody uses categories: a plain list, no headers
+  const none = items.filter(p => !catKey(p.category)); if (none.length) groups.push({ key: '', name: 'ያለ ምድብ', items: none });
+  return groups.map(g => {
+    const open = !catFold.has(g.key), done = g.items.filter(p => isDone(ds, p)).length;
+    return `<button type="button" class="cat-h" data-catfold="${esc(g.key)}" aria-expanded="${open}"><span class="cat-car" aria-hidden="true">${open ? '▾' : '▸'}</span><b>${esc(g.name)}</b><small>${done}/${g.items.length}</small></button>` +
+      (open ? `<div class="cat-body">${cards(g.items)}</div>` : '');
+  }).join('');
+}
+
+// A deleted activity on a day before it was deleted: shown read-only, so the day's numbers still add up.
+function ghostCard(p, ds) {
+  const t = disp(p, ds), r = resOf(ds, p), done = isDone(ds, p), note = noteOf(ds, p);
+  const mark = done ? '✓' : r.k === 'x' ? '✗' : r.k === 'p' ? r.pct + '%' : '—';
+  return `<div class="card glass ghost-card${done ? ' done-card' : ''}"><div class="card-top"><div class="info"><div class="name">${esc(t.name)}<span class="tag">🗑 ተሰርዟል</span></div></div><div class="ghost-mark">${mark}</div></div>${note ? `<div class="card-note"><span class="cn-i" aria-hidden="true">📝</span><span class="cn-t">${esc(note)}</span></div>` : ''}</div>`;
+}
+
 /* ---------- main render ---------- */
 function render() {
   const ds = fmt(sel), all = tasksFor(sel);
-  const dayPrograms = all.filter(p => Array.isArray(p.schedule));
-  const dailyPrograms = all.filter(p => p.schedule === 'daily');
+  const live = all.filter(p => !p.ghost), gone = all.filter(p => p.ghost);   // gone = deleted later, but they counted on this day
   // the ring and reports count ONLY the activities this person can see
   const T = tally(ds, all), pct = T.frac;   // Phase 3A part 4: the real percent (60% counts as 60); pct is exactly 1 only when every activity is a full ✓
   const CIRC = 2 * Math.PI * 26;
@@ -492,8 +649,8 @@ function render() {
 
   const byIncomplete = (a, b) => isDone(ds, a) - isDone(ds, b);
   $('list').innerHTML =
-    (dayPrograms.length ? '<div class="sect-lbl">የቀኑ ፕሮግራም</div>' + dayPrograms.slice().sort(byIncomplete).map(p => card(p, ds)).join('') : '') +
-    (dailyPrograms.length ? '<div class="sect-lbl">ዕለታዊ ማሳሰቢያ</div>' + dailyPrograms.slice().sort(byIncomplete).map(p => card(p, ds)).join('') : '') +
+    groupedList(live, ds, byIncomplete) +
+    (gone.length ? '<div class="sect-lbl">🗑 የተሰረዙ (ለታሪክ ብቻ)</div>' + gone.map(p => ghostCard(p, ds)).join('') : '') +
     (!all.length ? '<div class="sect-lbl">ምንም ፕሮግራም የለም — ከላይ ባለው ＋ ይጨምሩ</div>' : '');
 
   drawDayReport(ds, all, T);
@@ -548,6 +705,8 @@ function pop(sel) { const el = $('list').querySelector(sel); if (el) { el.classL
 
 /* ---------- list clicks: open detail / tick / sub-tick / week-strip tick / quick-edit / delete / jump-to-tab ---------- */
 $('list').onclick = async e => {
+  const fb = e.target.closest('[data-catfold]');
+  if (fb) { const k = fb.dataset.catfold; if (catFold.has(k)) catFold.delete(k); else catFold.add(k); saveFold(); render(); return; }
   const sb = e.target.closest('[data-subtick]'), tb = e.target.closest('[data-tick]'),
         eb = e.target.closest('[data-edit]'), db = e.target.closest('[data-del]'),
         ob = e.target.closest('[data-open]'), wb = e.target.closest('[data-wtick]'),
@@ -561,10 +720,11 @@ $('list').onclick = async e => {
     const [pid, wds] = wb.dataset.wtick.split(':');
     if (!dayEditable(wds)) { lockToast(wds); return; }
     const p = programs.find(x => x.id === pid); if (!p) return;
-    if (p.type === 'checklist') {
+    const qw = at(p, wds);
+    if (qw.type === 'checklist') {
       const wasDone = isDone(wds, p), keepN = noteOf(wds, p);   // the day's note must survive a master tap
       logs[wds] = logs[wds] || {}; logs[wds][p.id] = {};
-      p.subItems.forEach(s => logs[wds][p.id][s.id] = !wasDone);
+      qw.subItems.forEach(s => logs[wds][p.id][s.id] = !wasDone);
       if (keepN) logs[wds][p.id].n = keepN;
     } else {
       toggleSimple(wds, p);
@@ -573,7 +733,7 @@ $('list').onclick = async e => {
   }
   if (rsb) {   // "ውጤት": pick ✓ / ✗ / % for the day that is on screen
     const pid = rsb.dataset.res, p0 = programs.find(x => x.id === pid);
-    if (!p0 || p0.type === 'checklist') return;
+    if (!p0 || at(p0, ds).type === 'checklist') return;
     if (!dayEditable(ds)) { lockToast(ds); return; }
     const r = await resultDialog(p0, ds); if (!r) return;
     const p1 = programs.find(x => x.id === pid);
@@ -607,17 +767,19 @@ $('list').onclick = async e => {
   if (sb) {
     if (!dayEditable(ds)) { lockToast(ds); return; }
     const [pid, sid] = sb.dataset.subtick.split(':');
-    logs[ds] = logs[ds] || {}; logs[ds][pid] = logs[ds][pid] || {};
+    const ps = programs.find(x => x.id === pid); if (!ps) return;
+    logs[ds] = logs[ds] || {}; logs[ds][pid] = subsObj(logs[ds][pid], at(ps, ds));
     logs[ds][pid][sid] = !logs[ds][pid][sid]; persist(); render();
     pop(`[data-subtick="${pid}:${sid}"]`); return;
   }
   if (tb) {
     if (!dayEditable(ds)) { lockToast(ds); return; }
-    const id = tb.dataset.tick, p = programs.find(x => x.id === id);
-    if (p.type === 'checklist') {
+    const id = tb.dataset.tick, p = programs.find(x => x.id === id); if (!p) return;
+    const qt = at(p, ds);
+    if (qt.type === 'checklist') {
       const wasDone = isDone(ds, p), keepN = noteOf(ds, p);   // the day's note must survive a master tap
       logs[ds] = logs[ds] || {}; logs[ds][p.id] = {};
-      p.subItems.forEach(s => logs[ds][p.id][s.id] = !wasDone);
+      qt.subItems.forEach(s => logs[ds][p.id][s.id] = !wasDone);
       if (keepN) logs[ds][p.id].n = keepN;
     } else {
       toggleSimple(ds, p);
@@ -630,11 +792,12 @@ $('list').onclick = async e => {
     const id = db.dataset.del;
     const i = await choiceDialog('ይህን ፕሮግራም ወደ ቆሻሻ መጣያ ማዛወር ይፈልጋሉ?', ['አዎ፣ ሰርዝ', 'አይ']);
     if (i !== 0) return;
-    const removed = programs.find(x => x.id === id), idx = programs.indexOf(removed);
-    programs = programs.filter(x => x.id !== id); savePrograms(); render();
+    const removed = programs.find(x => x.id === id); if (!removed) return;
+    const idx = programs.indexOf(removed), delDs = fmt(today());
+    programs = programs.filter(x => x.id !== id); savePrograms();
     markSeedRemoved('program', removed);
-    const trashId = trashAdd('program', removed);
-    showUndo('ፕሮግራም ወደ ቆሻሻ መጣያ ተዛወረ', () => { programs.splice(idx, 0, removed); savePrograms(); unmarkSeedRemoved('program', removed.id); trashRemove(trashId); render(); });
+    const trashId = trashAdd('program', removed); render();
+    showUndo('ፕሮግራም ወደ ቆሻሻ መጣያ ተዛወረ', () => { reinstate(removed, delDs); programs.splice(idx, 0, removed); savePrograms(); unmarkSeedRemoved('program', removed.id); trashRemove(trashId); render(); });
     return;
   }
   if (ob) { openDetail(ob.dataset.open); return; }
@@ -650,22 +813,26 @@ $('settingsBtn').onclick = e => e.currentTarget.setAttribute('aria-expanded', $(
 const overlay = $('overlay'), sheet = $('sheet'), addSheet = $('addSheet'), pageSheet = $('pageSheet');
 function openEdit(id) {
   editId = id; const ds = fmt(sel); const p = programs.find(x => x.id === id); const t = disp(p, ds);
-  $('eName').value = t.name; $('eDesc').value = t.desc;
+  $('eName').value = t.name; $('eDesc').value = t.desc; fillCat('eCat', canonCat(p.category));
   overlay.classList.add('open'); sheet.classList.add('open');
 }
 const closeEdit = () => { overlay.classList.remove('open'); sheet.classList.remove('open'); };
 $('eCancel').onclick = closeEdit;
-addEventListener('keydown', e => { if (e.key === 'Escape') { closeEdit(); closeAdd(); closePageSheet(); closeDetail(); closeTrash(); } });
+addEventListener('keydown', e => { if (e.key === 'Escape') { closeEdit(); closeAdd(); closePageSheet(); closeDetail(); closeTrash(); closeCats(); } });
 $('eSave').onclick = async () => {
   const n = $('eName').value.trim(); if (!n) return;
-  const desc = $('eDesc').value;
-  const i = await choiceDialog('ይህን ለውጥ የት ይተግብር?', ['ለዛሬ ብቻ', 'ለሁልጊዜው']);
-  if (i === -1) return;
-  if (i === 0) {
-    const ds = fmt(sel); dayOv[ds] = dayOv[ds] || {}; dayOv[ds][editId] = { name: n, desc };
-  } else {
-    const p = programs.find(x => x.id === editId); p.name = n; p.desc = desc; p.customized = true; savePrograms();
+  const desc = $('eDesc').value, p = programs.find(x => x.id === editId); if (!p) { closeEdit(); return; }
+  const ds = fmt(sel), t = disp(p, ds), cat = getCat('eCat');
+  const textChanged = n !== t.name || desc !== t.desc, catChanged = catKey(cat) !== catKey(p.category);
+  if (!textChanged && !catChanged) { closeEdit(); return; }
+  let i = 1;   // 0 = today only, 1 = every time
+  if (textChanged) { i = await choiceDialog(catChanged ? 'የስም / የዝርዝር ለውጥ የት ይተግብር? (ምድብ ሁልጊዜ ይቀየራል)' : 'ይህን ለውጥ የት ይተግብር?', ['ለዛሬ ብቻ', 'ለሁልጊዜው']); if (i === -1) return; }
+  if (catChanged) { p.category = cat; p.catSet = true; }   // a category is never "today only"; catSet also stops a data.js refresh from undoing it
+  if (textChanged) {
+    if (i === 0) { dayOv[ds] = dayOv[ds] || {}; dayOv[ds][editId] = { name: n, desc }; }
+    else { p.name = n; p.desc = desc; p.customized = true; }
   }
+  if (catChanged || (textChanged && i === 1)) savePrograms();
   persist(); closeEdit(); render(); toast('ተቀምጧል።');
 };
 
@@ -679,11 +846,10 @@ $('dayChips').innerHTML = `<button type="button" class="daychip active" data-d="
 
 function openAdd() {
   addType = 'simple'; addDays = 'daily'; subItemsTemp = [];
-  $('aName').value = ''; $('aDesc').value = ''; $('aCat').value = '';
+  $('aName').value = ''; $('aDesc').value = ''; fillCat('aCat', '');
   document.querySelectorAll('#addSheet .typebtn').forEach(b => b.classList.toggle('active', b.dataset.type === 'simple'));
   $('subWrap').hidden = true; renderSubEditor();
   document.querySelectorAll('#addSheet .daychip').forEach(b => b.classList.toggle('active', b.dataset.d === 'daily'));
-  $('catList').innerHTML = [...new Set(programs.map(p => p.category).filter(Boolean))].map(c => `<option value="${esc(c)}">`).join('');
   overlay.classList.add('open'); addSheet.classList.add('open');
 }
 const closeAdd = () => { overlay.classList.remove('open'); addSheet.classList.remove('open'); };
@@ -723,7 +889,7 @@ $('aSave').onclick = () => {
   const validSubs = subItemsTemp.filter(s => s.name.trim());
   if (addType === 'checklist' && validSubs.length < 1) { toast('ቢያንስ አንድ ንዑስ ዝርዝር ጨምር'); return; }
   const p = {
-    id: uid(), name: n, desc: $('aDesc').value, category: $('aCat').value.trim(), type: addType,
+    id: uid(), name: n, desc: $('aDesc').value, category: getCat('aCat'), type: addType,
     schedule: addDays === 'daily' ? 'daily' : addDays.slice(), seed: false, customized: true, createdAt: fmt(today())
   };
   if (addType === 'checklist') p.subItems = validSubs.map(s => ({ id: s.id, name: s.name.trim() }));
@@ -834,8 +1000,8 @@ function renderDetail() {
   const p = programs.find(x => x.id === detailId);
   if (!p) { closeDetail(); return; }
   $('detailTitle').textContent = p.name;
-  $('detailCat').textContent = p.category || '';
-  $('detailCat').hidden = !p.category;
+  $('detailCat').textContent = catClean(p.category) ? canonCat(p.category) : '';
+  $('detailCat').hidden = !catClean(p.category);
   if (detailTab === 'cal') $('detailBody').innerHTML = calendarTabHtml(p);
   else if (detailTab === 'stat') $('detailBody').innerHTML = statsTabHtml(p);
   else editTabRender(p);
@@ -852,7 +1018,7 @@ function calendarTabHtml(p) {
   for (let d = 1; d <= daysInMonth; d++) {
     const dt = new Date(y, m, d), ds = fmt(dt);
     const isToday = ds === ds0;
-    const na = !appliesOn(p, dt) || ds < p.createdAt;
+    const na = !countsOn(p, dt);
     let cls = 'na', sty = '';
     if (!na) {
       const r = resOf(ds, p);   // ✓ done · % partly (the circle fills up to that percent) · ✗ marked not done · nothing marked
@@ -888,12 +1054,10 @@ function periodStats(p, fromDs, toDs) {   // -> mkStat(): total days, full ✓ d
   let sum = 0, done = 0, part = 0, fail = 0, total = 0;
   let cur = parseDs(fromDs); const end = parseDs(toDs);
   while (cur <= end) {
-    if (appliesOn(p, cur)) {
+    if (countsOn(p, cur)) {
       const ds = fmt(cur);
-      if (ds >= p.createdAt) {
-        total++; const r = resOf(ds, p); sum += r.pct;
-        if (r.k === 'v') done++; else if (r.k === 'p') part++; else if (r.k === 'x') fail++;
-      }
+      total++; const r = resOf(ds, p); sum += r.pct;
+      if (r.k === 'v') done++; else if (r.k === 'p') part++; else if (r.k === 'x') fail++;
     }
     cur.setDate(cur.getDate() + 1);
   }
@@ -905,7 +1069,7 @@ function statsTabHtml(p) {
   let trend = '';
   for (let i = 6; i >= 0; i--) {
     const d = new Date(t); d.setDate(d.getDate() - i); const ds = fmt(d);
-    const na = !appliesOn(p, d) || ds < p.createdAt;
+    const na = !countsOn(p, d);
     const r = na ? { k: '', pct: 0 } : resOf(ds, p);
     const cls = na ? 'na' : r.k === 'v' ? 'done' : r.k === 'x' ? 'fail' : r.k === 'p' ? 'part' : (d.getTime() < t.getTime() ? 'missed' : 'na');
     trend += `<div class="trend-cell"><span>${PDAY_LABELS[(d.getDay() + 6) % 7][0]}</span><div class="trend-dot ${cls}">${cls === 'done' ? '✓' : cls === 'fail' ? '✗' : cls === 'part' ? r.pct : ''}</div></div>`;
@@ -913,7 +1077,7 @@ function statsTabHtml(p) {
   const wkStart = new Date(t); wkStart.setDate(t.getDate() - ((t.getDay() + 6) % 7));
   const moStart = new Date(t.getFullYear(), t.getMonth(), 1);
   const yrStart = new Date(t.getFullYear(), 0, 1);
-  const allTime = periodStats(p, p.createdAt, ds0);
+  const allTime = periodStats(p, firstDayOf(p), ds0);
   const rows = [
     ['ዛሬ', periodStats(p, ds0, ds0)],
     ['ይህ ሳምንት', periodStats(p, fmt(wkStart), ds0)],
@@ -933,12 +1097,16 @@ function statsTabHtml(p) {
     ${rows.some(([, s]) => s.part) ? '<div class="rep-note">◐ = በከፊል የተሰራ (መቶኛ)</div>' : ''}`;
 }
 
+function etKeep() {   // the tab redraws when you change type / days / sub-items: keep what was already typed
+  if ($('etName')) etState.name = $('etName').value;
+  if ($('etDesc')) etState.desc = $('etDesc').value;
+  if ($('etCat')) etState.cat = getCat('etCat');
+}
 function editTabHtml(p) {
-  const catOptions = [...new Set(programs.map(x => x.category).filter(Boolean))];
+  const vName = etState.name !== undefined ? etState.name : p.name, vDesc = etState.desc !== undefined ? etState.desc : p.desc, vCat = etState.cat !== undefined ? etState.cat : canonCat(p.category);
   return `<div class="edit-tab">
-    <label for="etCat">ምድብ</label>
-    <input type="text" id="etCat" list="etCatList" maxlength="30" value="${esc(p.category || '')}">
-    <datalist id="etCatList">${catOptions.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+    <label>ምድብ</label>
+    ${catPickHtml('etCat', vCat)}
 
     <label>ዓይነት</label>
     <div class="typerow">
@@ -951,8 +1119,8 @@ function editTabHtml(p) {
       <button type="button" class="addsub" id="etAddSub">+ ንዑስ ጨምር</button>
     </div>
 
-    <label for="etName">ስም</label><input type="text" id="etName" maxlength="60" value="${esc(p.name)}">
-    <label for="etDesc">ዝርዝር</label><textarea id="etDesc" maxlength="2000">${esc(p.desc)}</textarea>
+    <label for="etName">ስም</label><input type="text" id="etName" maxlength="60" value="${esc(vName)}">
+    <label for="etDesc">ዝርዝር</label><textarea id="etDesc" maxlength="2000">${esc(vDesc)}</textarea>
 
     <label>መቼ ይታይ</label>
     <div class="daychips" id="etDayChips">
@@ -964,12 +1132,24 @@ function editTabHtml(p) {
     <button type="button" class="delbtn" id="etDelete">ይህን ፕሮግራም ሰርዝ</button>
   </div>`;
 }
+function convertToday(p, ds, wasDone) {   // the type just changed: today's saved value must fit the new type (a ✓ stays a ✓; the note is always kept)
+  const old = logs[ds] && logs[ds][p.id];
+  if (old === undefined || old === null || old === false) return false;
+  const note = (old && typeof old === 'object' && typeof old.n === 'string') ? old.n : '';
+  let v;
+  if (p.type === 'checklist') {
+    if (wasDone) { v = {}; p.subItems.forEach(s => { v[s.id] = true; }); if (note) v.n = note; } else v = note ? { n: note } : false;
+  } else v = wasDone ? (note ? { r: 'v', n: note } : true) : (note ? { n: note } : false);
+  if (JSON.stringify(v) === JSON.stringify(old)) return false;
+  logs[ds][p.id] = v; persist(); return true;
+}
 function editTabRender(p) {
   etState = { type: p.type, days: Array.isArray(p.schedule) ? p.schedule.slice() : 'daily', subItems: p.type === 'checklist' ? p.subItems.map(s => ({ ...s })) : [] };
   $('detailBody').innerHTML = editTabHtml(p);
 }
 async function editTabClick(e) {
   const p = programs.find(x => x.id === detailId); if (!p) return;
+  if (e.target.closest('[data-ettype],[data-etd],[data-etsdi],#etAddSub')) etKeep();
   const tbn = e.target.closest('[data-ettype]');
   if (tbn) { etState.type = tbn.dataset.ettype; $('detailBody').innerHTML = editTabHtml(p); return; }
   const dc = e.target.closest('[data-etd]');
@@ -991,22 +1171,39 @@ async function editTabClick(e) {
     const name = $('etName').value.trim(); if (!name) { toast('ስም ያስፈልጋል'); return; }
     const validSubs = etState.subItems.filter(s => s.name.trim());
     if (etState.type === 'checklist' && validSubs.length < 1) { toast('ቢያንስ አንድ ንዑስ ዝርዝር ጨምር'); return; }
-    p.name = name; p.desc = $('etDesc').value; p.category = $('etCat').value.trim();
-    p.type = etState.type; p.schedule = etState.days === 'daily' ? 'daily' : etState.days.slice();
-    if (etState.type === 'checklist') p.subItems = validSubs.map(s => ({ id: s.id, name: s.name.trim() }));
-    else delete p.subItems;
+    const newCat = getCat('etCat');
+    if (catKey(newCat) !== catKey(p.category)) p.catSet = true;   // so a data.js refresh never undoes the category you picked
+    p.name = name; p.desc = $('etDesc').value; p.category = newCat;
+    const newSched = etState.days === 'daily' ? 'daily' : etState.days.slice(), tdy = fmt(today());
+    if (!sameSched(p.schedule, newSched) && p.createdAt < tdy) {   // new weekdays start TODAY; days already over keep the old ones
+      p.sh = Array.isArray(p.sh) ? p.sh : [];
+      if (!p.sh.length || p.sh[p.sh.length - 1].u !== tdy) p.sh.push({ u: tdy, s: copySched(p.schedule) });
+    }
+    // sub-items / single <-> master: the new shape starts TODAY; days already over keep the old shape (see "THE SHAPE OF AN ACTIVITY")
+    const oldType = p.type, oldSubs = oldType === 'checklist' && Array.isArray(p.subItems) ? p.subItems.map(s => ({ id: s.id, name: s.name })) : [];
+    const newSubs = etState.type === 'checklist' ? validSubs.map(s => ({ id: s.id, name: s.name.trim() })) : [];
+    const shapeChanged = oldType !== etState.type || oldSubs.map(s => s.id).join('|') !== newSubs.map(s => s.id).join('|');
+    const wasDoneToday = shapeChanged && isDone(tdy, p);   // read BEFORE the change
+    if (shapeChanged && p.createdAt < tdy) {
+      p.vh = Array.isArray(p.vh) ? p.vh : [];
+      if (!p.vh.length || p.vh[p.vh.length - 1].u !== tdy) p.vh.push({ u: tdy, t: oldType, s: oldSubs });
+    }
+    p.type = etState.type; p.schedule = newSched;
+    if (etState.type === 'checklist') p.subItems = newSubs; else delete p.subItems;
     p.customized = true;
-    savePrograms(); toast('ተቀምጧል።'); render(); return;
+    const conv = oldType !== p.type && dayEditable(tdy) && convertToday(p, tdy, wasDoneToday);
+    savePrograms(); toast(conv ? 'ተቀምጧል። የዛሬው ምልክት ከአዲሱ ዓይነት ጋር ተስተካክሏል።' : 'ተቀምጧል።'); render(); return;
   }
   if (e.target.closest('#etDelete')) {
     const i = await choiceDialog('ይህን ፕሮግራም ወደ ቆሻሻ መጣያ ማዛወር ይፈልጋሉ?', ['አዎ፣ ሰርዝ', 'አይ']);
     if (i !== 0) return;
-    const removed = programs.find(x => x.id === detailId), idx = programs.indexOf(removed);
-    programs = programs.filter(x => x.id !== detailId);
-    savePrograms(); closeDetail(); render();
+    const removed = programs.find(x => x.id === detailId); if (!removed) return;
+    const idx = programs.indexOf(removed), delDs = fmt(today());
+    programs = programs.filter(x => x.id !== removed.id);
+    savePrograms(); closeDetail();
     markSeedRemoved('program', removed);
-    const trashId = trashAdd('program', removed);
-    showUndo('ፕሮግራም ወደ ቆሻሻ መጣያ ተዛወረ', () => { programs.splice(idx, 0, removed); savePrograms(); unmarkSeedRemoved('program', removed.id); trashRemove(trashId); render(); });
+    const trashId = trashAdd('program', removed); render();
+    showUndo('ፕሮግራም ወደ ቆሻሻ መጣያ ተዛወረ', () => { reinstate(removed, delDs); programs.splice(idx, 0, removed); savePrograms(); unmarkSeedRemoved('program', removed.id); trashRemove(trashId); render(); });
   }
 }
 $('detailBody').addEventListener('click', e => {
@@ -1027,6 +1224,40 @@ $('detailBody').addEventListener('input', e => {
    detail view) listing every trashed program/page, each with its own
    ♻ Restore and 🗑 "delete forever" buttons. Opened from ⚙ Settings.
    ============================================================ */
+/* ---------- category manager: rename / merge / delete a whole category ---------- */
+const catView = $('catView'); let catEdit = null;   // catEdit = { mode:'ren'|'del', key }
+function renderCatView() {
+  const cats = categories(), none = programs.filter(p => !catKey(p.category)).length;
+  const row = c => {
+    if (catEdit && catEdit.key === c.key && catEdit.mode === 'ren') return `<div class="cat-row glass editing"><input type="text" id="catRenInput" maxlength="30" value="${esc(c.name)}" aria-label="አዲስ ስም"><div class="cat-hint" id="catRenHint"></div><div class="cat-acts"><button type="button" class="cat-save" data-catok="${esc(c.key)}">አስቀምጥ</button><button type="button" class="cat-cancel" data-catno="1">ተው</button></div></div>`;
+    if (catEdit && catEdit.key === c.key && catEdit.mode === 'del') return `<div class="cat-row glass editing"><div class="cat-q">«${esc(c.name)}» ሲሰረዝ ${c.count} ፕሮግራሞች ወዴት ይዛወሩ?</div><select id="catMoveTo" class="clp-sel"><option value="">ያለ ምድብ</option>${cats.filter(x => x.key !== c.key).map(x => `<option value="${esc(x.name)}">${esc(x.name)}</option>`).join('')}</select><div class="cat-acts"><button type="button" class="cat-save danger" data-catdelok="${esc(c.key)}">አዛውር እና ምድቡን ሰርዝ</button><button type="button" class="cat-cancel" data-catno="1">ተው</button></div></div>`;
+    return `<div class="cat-row glass"><div class="cat-main"><b>${esc(c.name)}</b><small>${c.count} ፕሮግራም</small></div><button type="button" class="cat-btn" data-catren="${esc(c.key)}" aria-label="ስም ቀይር">✎</button><button type="button" class="cat-btn" data-catdel="${esc(c.key)}" aria-label="ምድቡን ሰርዝ">🗑</button></div>`;
+  };
+  $('catBody').innerHTML = '<p class="cat-help">ስም ሲቀይሩ በዚያ ምድብ ውስጥ ያሉ ሁሉም ፕሮግራሞች ይቀየራሉ። ከሌላ ምድብ ስም ጋር ካስተካከሉ ሁለቱ ይዋሃዳሉ።</p>' +
+    (cats.length ? cats.map(row).join('') : '<p class="cat-help">ገና ምድብ የለም። ፕሮግራም ሲጨምሩ ወይም ሲያስተካክሉ ምድብ ይምረጡ ወይም አዲስ ይፍጠሩ።</p>') +
+    (none ? `<div class="cat-row none"><div class="cat-main"><b>ያለ ምድብ</b><small>${none} ፕሮግራም</small></div></div>` : '');
+}
+function openCats() { if (ROLE.r) return; catEdit = null; renderCatView(); catView.classList.add('open'); }
+function closeCats() { catView.classList.remove('open'); catEdit = null; }
+$('catBack').onclick = closeCats;
+$('catsBtn').onclick = () => { $('settingsPanel').classList.remove('open'); $('settingsBtn').setAttribute('aria-expanded', 'false'); openCats(); };
+$('catBody').addEventListener('input', e => {
+  if (e.target.id !== 'catRenInput') return;
+  const k = catKey(e.target.value), ex = categories().find(c => c.key === k && catEdit && c.key !== catEdit.key);
+  $('catRenHint').textContent = ex ? `⚠ «${ex.name}» አስቀድሞ አለ — ሁለቱ ይዋሃዳሉ` : '';
+});
+$('catBody').addEventListener('click', e => {
+  const r = e.target.closest('[data-catren]'), d = e.target.closest('[data-catdel]'), ok = e.target.closest('[data-catok]'), dok = e.target.closest('[data-catdelok]'), no = e.target.closest('[data-catno]');
+  if (r) { catEdit = { mode: 'ren', key: r.dataset.catren }; renderCatView(); const i = $('catRenInput'); if (i) { i.focus(); i.select(); } return; }
+  if (d) { catEdit = { mode: 'del', key: d.dataset.catdel }; renderCatView(); return; }
+  if (no) { catEdit = null; renderCatView(); return; }
+  if (ok) {
+    const to = catClean($('catRenInput').value); if (!to) { toast('ስም ያስፈልጋል'); return; }
+    const n = renameCat(ok.dataset.catok, to); catEdit = null; renderCatView(); render(); toast(n ? 'ተቀይሯል።' : 'ተቀምጧል።'); return;
+  }
+  if (dok) { const n = renameCat(dok.dataset.catdelok, $('catMoveTo').value); catEdit = null; renderCatView(); render(); toast(`ምድቡ ተሰርዟል · ${n} ፕሮግራም ተዛውሯል።`); }
+});
+
 const trashView = $('trashView');
 function openTrash() { renderTrashView(); trashView.classList.add('open'); }
 function closeTrash() { trashView.classList.remove('open'); }
@@ -1061,7 +1292,9 @@ $('trashBody').addEventListener('click', async e => {
     const t = trash.find(x => x.id === rb.dataset.restore); if (!t) return;
     if (t.kind === 'program') {
       if (programs.some(p => p.id === t.data.id)) { toast('ይህ ፕሮግራም አስቀድሞ አለ'); return; }
-      programs.push(t.data); unmarkSeedRemoved('program', t.data.id); savePrograms(); render();
+      const back = t.data, was = new Date(t.deletedAt);
+      reinstate(back, isNaN(was) ? fmt(today()) : fmt(was));   // the days it spent in the bin do not suddenly count again
+      programs.push(back); unmarkSeedRemoved('program', back.id); savePrograms(); render();
     } else {
       if (pages.some(p => p.id === t.data.id)) { toast('ይህ ገፅ አስቀድሞ አለ'); return; }
       pages.push(t.data); unmarkSeedRemoved('page', t.data.id); savePages(); renderPages();
@@ -1070,13 +1303,13 @@ $('trashBody').addEventListener('click', async e => {
     return;
   }
   if (pb) {
-    const i = await choiceDialog('ይህን ለዘላለም መሰረዝ ይፈልጋሉ? መመለስ አይቻልም።', ['አዎ፣ ለዘላለም ሰርዝ', 'አይ']);
+    const i = await choiceDialog('ይህን ለዘላለም መሰረዝ ይፈልጋሉ? ፕሮግራም ከሆነ ያለፉ ቀናት ውጤቱም ይጠፋል። መመለስ አይቻልም።', ['አዎ፣ ለዘላለም ሰርዝ', 'አይ']);
     if (i !== 0) return;
     trashRemove(pb.dataset.purge); renderTrashView(); toast('ለዘላለም ተሰርዟል።');
   }
 });
 $('trashClearAll').onclick = async () => {
-  const i = await choiceDialog('ቆሻሻ መጣያውን ሙሉ በሙሉ ባዶ ማድረግ ይፈልጋሉ? መመለስ አይቻልም።', ['አዎ፣ ባዶ አድርግ', 'አይ']);
+  const i = await choiceDialog('ቆሻሻ መጣያውን ሙሉ በሙሉ ባዶ ማድረግ ይፈልጋሉ? የተሰረዙ ፕሮግራሞች ያለፉ ቀናት ውጤትም ይጠፋል። መመለስ አይቻልም።', ['አዎ፣ ባዶ አድርግ', 'አይ']);
   if (i !== 0) return;
   trash = []; saveTrash(); renderTrashView(); updateTrashBadge(); toast('ቆሻሻ መጣያ ባዶ ሆኗል።');
 };
@@ -1105,7 +1338,7 @@ $('importFile').onchange = e => {
   r.onload = () => {
     try {
       const data = JSON.parse(r.result);
-      if (Array.isArray(data.programs)) programs = data.programs;
+      if (Array.isArray(data.programs)) { programs = data.programs; programs.forEach(p => { if (p && !p.createdAt) p.createdAt = FIRST_RUN; }); }
       if (data.logs) logs = data.logs;
       if (data.dayOv) dayOv = data.dayOv;
       if (Array.isArray(data.pages)) pages = data.pages;
