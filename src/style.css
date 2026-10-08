@@ -290,10 +290,7 @@ h1.title{white-space:normal}
 .nh-t{font-size:.82rem;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
 .nh-more{padding-top:6px;font-size:.72rem;color:var(--muted);text-align:center}
 
-/* Logged-in users have the name bar (#cl-chip) along the bottom edge; it used to sit ON TOP of the toast and the Undo bar. Lift both above it. */
-body.cloud .toast,body.cloud .undo{bottom:calc(76px + env(safe-area-inset-bottom,0px))}
 .toast,.undo{width:max-content;max-width:90vw}
-body.cloud .detail-body{padding-bottom:90px}   /* keeps the last line of a full-screen page clear of the name bar */
 
 /* ---- Phase 3A part 4: ring, reports, statistics and calendar understand ✗ / % / notes ---- */
 .rp-m{font-size:.72rem;font-weight:700;margin-inline-start:4px}
@@ -310,3 +307,61 @@ body.cloud .detail-body{padding-bottom:90px}   /* keeps the last line of a full-
 .cal-legend i.note{width:7px;height:7px;background:var(--gold)}
 .trend-dot.fail{background:#C0524A;color:#fff}
 .trend-dot.part{border:2px solid var(--gold);color:var(--gold);font-size:.55rem;font-weight:700}
+
+/* ---- Bundle A part 1: a deleted activity shown (read-only) on the days before it was deleted ---- */
+.ghost-card{opacity:.75}
+.ghost-card .card-top{align-items:center}
+.ghost-card.done-card{opacity:.55}
+.ghost-mark{flex-shrink:0;min-width:40px;text-align:center;font-weight:700;font-size:1rem;color:var(--muted)}
+
+/* ---- Bundle A part 3: header avatar (replaces the old bottom name bar) + full-screen profile page ---- */
+body.cloud #themeBtn{display:none}   /* the theme switch now lives on the profile page (the ◐ stays here only when nobody is logged in) */
+.avbtn{position:relative;width:36px;height:36px;border-radius:50%;flex-shrink:0;display:grid;place-items:center;font-weight:700;font-size:1rem;background:linear-gradient(145deg,#ffd760,#e79a00);color:#3b2a00;box-shadow:0 3px 10px rgba(0,0,0,.2)}
+.avbtn::before{content:'';position:absolute;inset:-4px}   /* a 44px touch area around the 36px circle */
+.av-dot{position:absolute;right:-2px;bottom:-2px;width:13px;height:13px;border-radius:50%;border:2px solid var(--bg1);background:#2FBF84}
+.avbtn[data-st=pend] .av-dot{background:#FFBA00}
+.avbtn[data-st=off] .av-dot{background:#8A8F8C}
+.av-n{position:absolute;top:-7px;right:-7px;min-width:18px;height:18px;padding:0 4px;border-radius:99px;background:#FFBA00;color:#3B2A00;font-size:.62rem;font-weight:700;line-height:18px;text-align:center;border:1.5px solid var(--bg1)}
+.avbtn[data-st=off] .av-n{background:#8A8F8C;color:#fff}
+#cl-prof{z-index:15}
+.clp-who{display:flex;align-items:center;gap:14px;margin-top:10px;padding:18px;border-radius:22px}
+.clp-av{width:58px;height:58px;border-radius:50%;flex-shrink:0;display:grid;place-items:center;font-size:1.5rem;font-weight:700;background:linear-gradient(145deg,#ffd760,#e79a00);color:#3b2a00}
+.clp-name{font:700 1.2rem "Playfair Display",Georgia,serif;overflow-wrap:anywhere}
+.clp-role{margin-top:2px;font-size:.85rem;color:var(--muted)}
+.clp-card{margin-top:12px;padding:14px 16px;border-radius:20px}
+.clp-h{margin-bottom:8px;font-size:.78rem;font-weight:600;color:var(--muted)}
+.clp-p{margin:0 0 10px;font-size:.8rem;line-height:1.5;color:var(--muted)}
+.clp-sync{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-size:.9rem}
+.clp-sync small{display:block;margin-top:2px;font-size:.72rem;color:var(--muted)}
+.clp-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0;background:#2FBF84}
+.clp-dot[data-st=pend]{background:#FFBA00}
+.clp-dot[data-st=off]{background:#8A8F8C}
+.clp-btn{display:block;width:100%;min-height:46px;padding:11px 16px;border-radius:14px;background:var(--glass);border:1px solid var(--gb);font-weight:600;font-size:.88rem}
+.clp-btn.wide{margin-top:12px;background:var(--btn);color:var(--btnfg);border-color:transparent}
+.clp-btn.danger{background:#C0524A;color:#fff}
+.clp-sel{width:100%;min-height:46px;padding:10px 12px;border-radius:14px;border:1px solid var(--gb);background:var(--glass);color:var(--text);font:inherit;font-size:.9rem}
+
+/* ---- Bundle A part 4: category picker, grouped list, category manager ---- */
+.catpick{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.catchip{padding:9px 13px;min-height:40px;border-radius:99px;background:var(--glass);border:1px solid var(--gb);font-size:.8rem;font-weight:600;color:var(--muted)}
+.catchip.active{background:var(--btn);color:var(--btnfg);border-color:transparent}
+.catpick .catnew{flex-basis:100%;width:100%;padding:12px 13px;margin:2px 0 0;border:1px solid var(--gb);border-radius:14px;background:var(--glass);color:var(--text);font:inherit;font-size:.9rem}
+.cat-h{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;margin:14px 0 6px;padding:6px 4px;text-align:start;color:var(--muted);font-size:.85rem;font-weight:700;letter-spacing:.02em}
+.cat-h b{flex:1;min-width:0;overflow-wrap:anywhere;font-weight:700}
+.cat-h small{padding:2px 9px;border-radius:99px;background:var(--gb);font-size:.7rem}
+.cat-car{width:14px;flex-shrink:0}
+.cat-body{display:block}
+.cat-help{margin:6px 2px 12px;font-size:.8rem;line-height:1.55;color:var(--muted)}
+.cat-row{display:flex;align-items:center;gap:8px;margin-top:10px;padding:10px 12px;border-radius:18px}
+.cat-row.editing{flex-direction:column;align-items:stretch;gap:10px}
+.cat-row.none{opacity:.7}
+.cat-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.cat-main b{overflow-wrap:anywhere}.cat-main small{font-size:.72rem;color:var(--muted)}
+.cat-btn{width:44px;height:44px;border-radius:50%;flex-shrink:0;font-size:1rem}
+.cat-row input{width:100%;padding:12px 13px;border:1px solid var(--gb);border-radius:14px;background:var(--glass);color:var(--text);font:inherit;font-size:.9rem}
+.cat-hint{min-height:1em;font-size:.76rem;color:var(--gold)}
+.cat-q{font-size:.85rem;line-height:1.5}
+.cat-acts{display:flex;gap:8px}
+.cat-save,.cat-cancel{flex:1;min-height:46px;padding:10px;border-radius:14px;font-weight:700;font-size:.85rem}
+.cat-save{background:var(--btn);color:var(--btnfg)}.cat-save.danger{background:#C0524A}
+.cat-cancel{background:var(--glass);border:1px solid var(--gb)}
