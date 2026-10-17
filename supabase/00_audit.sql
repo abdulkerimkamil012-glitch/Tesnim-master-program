@@ -92,7 +92,7 @@ from (
   union all
 
   -- 6) app_config: every key and the first 60 letters of its value.
-  select 6, 'APP_CONFIG', cfg.key, left(cfg.value, 60)
+       select 6, 'APP_CONFIG', cfg.key, '*** hidden (' || length(coalesce(cfg.value,'')) || ' letters)'
   from public.app_config cfg
 
   union all
