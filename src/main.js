@@ -1,4 +1,4 @@
-// Categories (Bundle A part 4): one canonical name per category, a picker instead of free typing, rename / merge / delete for a whole category, grouped list. History safety (Bundle A parts 1-2): adding, deleting, restoring, re-scheduling, adding/removing sub-items or switching single <-> master never changes a day that is already over. Phase 3A part 4: the ring, reports, statistics and calendar understand ✗ / % / notes (60% counts as 60; the streak still needs a full ✓). Part 3: a note per activity per day (📝). Part 2: results ✓ done, ✗ not done, 1-99% partly done.
+// Bundle B2: Dashboard page (server numbers, Day / Week / Month) and the delete lock (🗑 off = no delete button works anywhere). Categories (Bundle A part 4): one canonical name per category, a picker instead of free typing, rename / merge / delete for a whole category, grouped list. History safety (Bundle A parts 1-2): adding, deleting, restoring, re-scheduling, adding/removing sub-items or switching single <-> master never changes a day that is already over. Phase 3A part 4: the ring, reports, statistics and calendar understand ✗ / % / notes (60% counts as 60; the streak still needs a full ✓). Part 3: a note per activity per day (📝). Part 2: results ✓ done, ✗ not done, 1-99% partly done.
 import './style.css';
 import { MEALS as SEED_MEALS, DAILY as SEED_DAILY, INFO_PAGES as SEED_PAGES, WD } from './data.js';
 
@@ -38,6 +38,10 @@ if (!FIRST_RUN) { FIRST_RUN = fmt(today()); localStorage.setItem(LS_FIRST, FIRST
 const ROLE = { r: false, past: false, tick: true };
 try { Object.assign(ROLE, JSON.parse(localStorage.getItem('tesnim_role') || '{}')); } catch (e) { /* keep safe defaults */ }
 const dayEditable = ds => { const t = fmt(today()); return ds === t ? ROLE.tick : (ds < t && ROLE.past && ROLE.tick); };
+// Bundle B2 delete lock: public/cloud.js puts "no-del" on <body> when the admin switched 🗑 off for this person.
+// Every delete path checks it (the buttons are hidden too, and the server refuses such a save anyway).
+const canDel = () => !document.body.classList.contains('no-del');
+const noDelToast = () => toast('🔒 መሰረዝ አልተፈቀደልዎትም');
 const lockToast = ds => toast(!ROLE.tick ? '🔒 ምልክት የማድረግ ፈቃድ የለዎትም' : (ds > fmt(today()) ? '🔒 የወደፊት ቀን ምልክት ማድረግ አይቻልም' : '🔒 ያለፈ ቀን ማስተካከል አይቻልም'));
 
 // Ids of seed (data.js-sourced) programs/pages the person has deliberately
@@ -645,7 +649,7 @@ function render() {
   $('dLbl').textContent = WD[sel.getDay()] + (editable ? '' : ' 🔒');
   $('dSub').textContent = sel.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   const rf = $('ringFill'); rf.style.strokeDasharray = CIRC; rf.style.strokeDashoffset = CIRC * (1 - pct);
-  $('ringText').innerHTML = `<b>${T.pct}%</b><br>${T.done} ከ ${T.total} ተጠናቅቋል${T.part ? ` · ${T.part} በከፊል` : ''}`;
+  $('ringText').innerHTML = (ROLE.r ? '<small class="ring-who">የእኔ ድርሻ</small><br>' : '') + `<b>${T.pct}%</b><br>${T.done} ከ ${T.total} ተጠናቅቋል${T.part ? ` · ${T.part} በከፊል` : ''}`;
 
   const byIncomplete = (a, b) => isDone(ds, a) - isDone(ds, b);
   $('list').innerHTML =
@@ -789,6 +793,7 @@ $('list').onclick = async e => {
   }
   if (eb) { openEdit(eb.dataset.edit); return; }
   if (db) {
+    if (!canDel()) { noDelToast(); return; }
     const id = db.dataset.del;
     const i = await choiceDialog('ይህን ፕሮግራም ወደ ቆሻሻ መጣያ ማዛወር ይፈልጋሉ?', ['አዎ፣ ሰርዝ', 'አይ']);
     if (i !== 0) return;
@@ -818,7 +823,7 @@ function openEdit(id) {
 }
 const closeEdit = () => { overlay.classList.remove('open'); sheet.classList.remove('open'); };
 $('eCancel').onclick = closeEdit;
-addEventListener('keydown', e => { if (e.key === 'Escape') { closeEdit(); closeAdd(); closePageSheet(); closeDetail(); closeTrash(); closeCats(); } });
+addEventListener('keydown', e => { if (e.key === 'Escape') { closeEdit(); closeAdd(); closePageSheet(); closeDetail(); closeTrash(); closeCats(); closeDash(); } });
 $('eSave').onclick = async () => {
   const n = $('eName').value.trim(); if (!n) return;
   const desc = $('eDesc').value, p = programs.find(x => x.id === editId); if (!p) { closeEdit(); return; }
@@ -941,6 +946,7 @@ $('pagesPanels').onclick = async e => {
   const eb = e.target.closest('[data-pgedit]'), db = e.target.closest('[data-pgdel]');
   if (eb) { openPageSheet(eb.dataset.pgedit); return; }
   if (db) {
+    if (!canDel()) { noDelToast(); return; }
     const id = db.dataset.pgdel;
     const i = await choiceDialog('ይህን ገፅ ወደ ቆሻሻ መጣያ ማዛወር ይፈልጋሉ?', ['አዎ፣ ሰርዝ', 'አይ']);
     if (i !== 0) return;
@@ -1195,6 +1201,7 @@ async function editTabClick(e) {
     savePrograms(); toast(conv ? 'ተቀምጧል። የዛሬው ምልክት ከአዲሱ ዓይነት ጋር ተስተካክሏል።' : 'ተቀምጧል።'); render(); return;
   }
   if (e.target.closest('#etDelete')) {
+    if (!canDel()) { noDelToast(); return; }
     const i = await choiceDialog('ይህን ፕሮግራም ወደ ቆሻሻ መጣያ ማዛወር ይፈልጋሉ?', ['አዎ፣ ሰርዝ', 'አይ']);
     if (i !== 0) return;
     const removed = programs.find(x => x.id === detailId); if (!removed) return;
@@ -1249,13 +1256,13 @@ $('catBody').addEventListener('input', e => {
 $('catBody').addEventListener('click', e => {
   const r = e.target.closest('[data-catren]'), d = e.target.closest('[data-catdel]'), ok = e.target.closest('[data-catok]'), dok = e.target.closest('[data-catdelok]'), no = e.target.closest('[data-catno]');
   if (r) { catEdit = { mode: 'ren', key: r.dataset.catren }; renderCatView(); const i = $('catRenInput'); if (i) { i.focus(); i.select(); } return; }
-  if (d) { catEdit = { mode: 'del', key: d.dataset.catdel }; renderCatView(); return; }
+  if (d) { if (!canDel()) { noDelToast(); return; } catEdit = { mode: 'del', key: d.dataset.catdel }; renderCatView(); return; }
   if (no) { catEdit = null; renderCatView(); return; }
   if (ok) {
     const to = catClean($('catRenInput').value); if (!to) { toast('ስም ያስፈልጋል'); return; }
     const n = renameCat(ok.dataset.catok, to); catEdit = null; renderCatView(); render(); toast(n ? 'ተቀይሯል።' : 'ተቀምጧል።'); return;
   }
-  if (dok) { const n = renameCat(dok.dataset.catdelok, $('catMoveTo').value); catEdit = null; renderCatView(); render(); toast(`ምድቡ ተሰርዟል · ${n} ፕሮግራም ተዛውሯል።`); }
+  if (dok) { if (!canDel()) { noDelToast(); return; } const n = renameCat(dok.dataset.catdelok, $('catMoveTo').value); catEdit = null; renderCatView(); render(); toast(`ምድቡ ተሰርዟል · ${n} ፕሮግራም ተዛውሯል።`); }
 });
 
 const trashView = $('trashView');
@@ -1303,12 +1310,14 @@ $('trashBody').addEventListener('click', async e => {
     return;
   }
   if (pb) {
+    if (!canDel()) { noDelToast(); return; }
     const i = await choiceDialog('ይህን ለዘላለም መሰረዝ ይፈልጋሉ? ፕሮግራም ከሆነ ያለፉ ቀናት ውጤቱም ይጠፋል። መመለስ አይቻልም።', ['አዎ፣ ለዘላለም ሰርዝ', 'አይ']);
     if (i !== 0) return;
     trashRemove(pb.dataset.purge); renderTrashView(); toast('ለዘላለም ተሰርዟል።');
   }
 });
 $('trashClearAll').onclick = async () => {
+  if (!canDel()) { noDelToast(); return; }
   const i = await choiceDialog('ቆሻሻ መጣያውን ሙሉ በሙሉ ባዶ ማድረግ ይፈልጋሉ? የተሰረዙ ፕሮግራሞች ያለፉ ቀናት ውጤትም ይጠፋል። መመለስ አይቻልም።', ['አዎ፣ ባዶ አድርግ', 'አይ']);
   if (i !== 0) return;
   trash = []; saveTrash(); renderTrashView(); updateTrashBadge(); toast('ቆሻሻ መጣያ ባዶ ሆኗል።');
@@ -1331,9 +1340,10 @@ $('exportBtn').onclick = async () => {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename;
   document.body.appendChild(a); a.click(); a.remove();
 };
-$('importBtn').onclick = () => $('importFile').click();
+$('importBtn').onclick = () => { if (!canDel()) { noDelToast(); return; } $('importFile').click(); };   // an import replaces everything, so it is a kind of delete
 $('importFile').onchange = e => {
   const f = e.target.files[0]; if (!f) return;
+  if (!canDel()) { noDelToast(); e.target.value = ''; return; }
   const r = new FileReader();
   r.onload = () => {
     try {
@@ -1349,6 +1359,188 @@ $('importFile').onchange = e => {
   };
   r.readAsText(f); e.target.value = '';
 };
+
+/* ============================================================
+   DASHBOARD (Bundle B2) — a full-screen page with Day / Week / Month tabs and a date picker.
+   The numbers come from the SERVER (app_dash in supabase/11_dash_functions.sql), not from this phone:
+     * everyone sees the same "Overall %" (every activity of everybody, counted with the same rules as this app);
+     * a member who sees only some activities also gets "My part" — for everything else the server sends ONLY
+       a percent (no names, no counts), so nothing about other people's activities ever reaches this phone.
+   The last answers are kept on this phone (tesnim_dash, at most 24 periods) so the page also opens with no internet.
+   ============================================================ */
+const LS_DASH = 'tesnim_dash', DASH_KEEP = 24, DASH_FRESH_MS = 60000;
+const dashView = $('dashView');
+let dashMode = 'day', dashDate = today(), dashSeq = 0, dashToday = fmt(today());
+const cloudApi = () => window.TesnimCloud || null;
+const pctTxt = p => (p === null || p === undefined) ? '—' : p + '%';
+const pctCls = p => (p === null || p === undefined) ? 'none' : p >= 80 ? 'hi' : p >= 40 ? 'mid' : 'lo';
+function monShort(d) { try { return d.toLocaleDateString('am-ET', { month: 'short' }); } catch (e) { return pad(d.getMonth() + 1); } }
+function shortDate(ds, withYear) {   // always "13 ኦክቶ 2026" (day, month, year) so a range reads the same way on every phone
+  const d = parseDs(ds);
+  return d.getDate() + ' ' + monShort(d) + (withYear ? ' ' + d.getFullYear() : '');
+}
+function dashRange() {   // the period that contains dashDate -> { from, to, days: ['YYYY-MM-DD', ...] }
+  const d = new Date(dashDate); let a, b;
+  if (dashMode === 'day') { a = new Date(d); b = new Date(d); }
+  else if (dashMode === 'week') { a = new Date(d); a.setDate(d.getDate() - ((d.getDay() + 6) % 7)); b = new Date(a); b.setDate(a.getDate() + 6); }
+  else { a = new Date(d.getFullYear(), d.getMonth(), 1); b = new Date(d.getFullYear(), d.getMonth() + 1, 0); }
+  const days = []; for (const c = new Date(a); c <= b; c.setDate(c.getDate() + 1)) days.push(fmt(c));
+  return { from: fmt(a), to: fmt(b), days };
+}
+function dashLabelTxt(r) {
+  if (dashMode === 'day') return WD[parseDs(r.from).getDay()] + ' · ' + shortDate(r.from, true);
+  if (dashMode === 'week') { const a = parseDs(r.from), b = parseDs(r.to); return (a.getMonth() === b.getMonth() ? a.getDate() : shortDate(r.from, a.getFullYear() !== b.getFullYear())) + ' – ' + shortDate(r.to, true); }
+  try { return parseDs(r.from).toLocaleDateString('am-ET', { month: 'long', year: 'numeric' }); } catch (e) { return r.from.slice(0, 7); }
+}
+function dashCache(key, data) {   // read (data undefined) or write one saved answer. Only for the person who is logged in.
+  try {
+    const w = cloudApi() && cloudApi().who(); if (!w) return null;
+    let c = JSON.parse(localStorage.getItem(LS_DASH) || 'null');
+    if (!c || c.u !== w.id || !c.e) c = { u: w.id, e: {} };
+    if (data === undefined) return c.e[key] || null;
+    c.e[key] = { at: Date.now(), data };
+    Object.keys(c.e).sort((x, y) => c.e[y].at - c.e[x].at).slice(DASH_KEEP).forEach(k => { delete c.e[k]; });
+    localStorage.setItem(LS_DASH, JSON.stringify(c));
+  } catch (e) { /* storage full or blocked: the page still works, it just is not saved */ }
+  return null;
+}
+function dashRing(p) {
+  const C = 2 * Math.PI * 26, f = (p === null || p === undefined) ? 0 : Math.max(0, Math.min(100, p)) / 100;
+  return `<svg class="ring dash-ring" viewBox="0 0 64 64" aria-hidden="true"><circle class="ring-track" cx="32" cy="32" r="26"/><circle class="ring-fill" cx="32" cy="32" r="26" style="stroke-dasharray:${C};stroke-dashoffset:${C * (1 - f)}"/></svg>`;
+}
+function dashNav() {   // the tabs, the period label, the picker and the arrows
+  const r = dashRange();
+  document.querySelectorAll('#dashTabs .dtab').forEach(b => b.classList.toggle('active', b.dataset.dmode === dashMode));
+  $('dashLabel').textContent = dashLabelTxt(r);
+  const inp = $('dashDate'); inp.max = dashToday; inp.value = fmt(dashDate);
+  $('dashNext').disabled = dashStepDate(1) === null;
+  return r;
+}
+function dashStepDate(dir) {   // the date one period earlier / later, or null when that period has not started yet
+  const d = new Date(dashDate);
+  if (dashMode === 'day') d.setDate(d.getDate() + dir);
+  else if (dashMode === 'week') d.setDate(d.getDate() + 7 * dir);
+  else { d.setDate(1); d.setMonth(d.getMonth() + dir); }
+  const save = dashDate; dashDate = d; const from = dashRange().from; dashDate = save;
+  if (from > dashToday) return null;
+  return fmt(d) > dashToday ? parseDs(dashToday) : d;
+}
+async function loadDash(force) {
+  const api = cloudApi(); if (!api) return;
+  const r = dashNav(), key = dashMode + ':' + r.from, seq = ++dashSeq, hit = dashCache(key);
+  if (hit) drawDash(hit.data, r, { at: hit.at, busy: true });
+  else $('dashBody').innerHTML = '<div class="dash-empty">⏳ በመጫን ላይ…</div>';
+  if (hit && !force && Date.now() - hit.at < DASH_FRESH_MS) { drawDash(hit.data, r, { at: hit.at }); return; }
+  try {
+    const d = await api.dash({ p_from: r.from, p_to: r.to });
+    if (seq !== dashSeq) return;   // the person already moved to another period
+    dashCache(key, d); drawDash(d, r, { at: Date.now() });
+  } catch (e) {
+    if (seq !== dashSeq) return;
+    const m = String(e && e.message || '');
+    if (hit && !/auth|range/.test(m)) { drawDash(hit.data, r, { at: hit.at, off: true }); return; }
+    $('dashBody').innerHTML = `<div class="dash-empty">${/auth/.test(m) ? '🔑 እባክዎ እንደገና ይግቡ።' : /range/.test(m) ? 'ይህ ቀን ሊታይ አይችልም።' : '📴 ኢንተርኔት የለም፣ ለዚህ ጊዜ የተቀመጠ ቅጂም የለም።<br>ኢንተርኔት ሲገኝ ↻ ይንኩ።'}<small>${esc(m)}</small></div>`;
+  }
+}
+function drawDash(d, r, meta) {
+  if (d && d.today) { dashToday = String(d.today).slice(0, 10); $('dashDate').max = dashToday; $('dashNext').disabled = dashStepDate(1) === null; }
+  const own = d.scope === 'own', O = (d.sum && d.sum.o) || {}, M = own ? ((d.sum && d.sum.m) || {}) : null;
+  const byDay = {}; (d.days || []).forEach(x => { if (x && x.d) byDay[x.d] = x; });
+  const cnt = S => (S && S.t) ? `${S.dn} ከ ${S.t} ተጠናቅቋል${S.pt ? ` · ${S.pt} በከፊል` : ''}${S.fl ? ` · ${S.fl} ✗` : ''}` : 'ለዚህ ጊዜ የሚቆጠር ፕሮግራም የለም';
+  let h = '';
+
+  // 1) Overall % — the same number for everyone
+  h += `<div class="dash-hero glass"><div class="dash-ringwrap">${dashRing(O.pct)}<b class="dash-big">${pctTxt(O.pct)}</b></div>` +
+    `<div class="dash-hero-t"><div class="dash-h">አጠቃላይ ውጤት</div>` +
+    `<div class="dash-sub">${own ? (O.days ? 'የሁሉም ተሳታፊዎች ፕሮግራሞች በአንድ ላይ' : 'ለዚህ ጊዜ የሚቆጠር ፕሮግራም የለም') : esc(cnt(O))}</div>` +
+    (dashMode !== 'day' && O.days ? `<div class="dash-sub">🔥 ${O.full} ከ ${O.days} ቀናት ሙሉ በሙሉ ተጠናቀዋል</div>` : '') + `</div></div>`;
+
+  // 2) My part (members who see only their own activities) — or the full breakdown (admin / "all programs")
+  if (own) {
+    h += `<div class="dash-card glass dash-mine"><div class="dash-mine-n ${pctCls(M.pct)}">${pctTxt(M.pct)}</div><div><div class="dash-h">የእኔ ድርሻ</div><div class="dash-sub">${esc(cnt(M))}</div></div></div>`;
+  } else if (O.t) {
+    const none = Math.max(0, O.t - O.dn - O.pt - O.fl);
+    h += `<div class="dash-tiles">` +
+      `<div class="dash-tile glass"><b class="hi">${O.dn}</b><span>✓ ተጠናቅቋል</span></div>` +
+      `<div class="dash-tile glass"><b class="mid">${O.pt}</b><span>◐ በከፊል</span></div>` +
+      `<div class="dash-tile glass"><b class="lo">${O.fl}</b><span>✗ አልተጠናቀቀም</span></div>` +
+      `<div class="dash-tile glass"><b>${none}</b><span>○ ምልክት የሌለው</span></div></div>`;
+  }
+
+  // 3) Week: one bar per day.  Month: a calendar.  Tap a day to open it in the Day tab.
+  if (dashMode === 'week') {
+    h += `<div class="dash-card glass"><div class="dash-h">ቀን በቀን</div>` + r.days.map(ds => {
+      const x = byDay[ds], fut = ds > dashToday, p = x && x.o && x.o.has ? x.o.pct : null, m = own && x && x.m && x.m.has ? x.m : null;
+      return `<button type="button" class="dash-wrow" data-dday="${ds}"${fut ? ' disabled' : ''}><span class="dash-wn">${esc(WD[parseDs(ds).getDay()])}</span>` +
+        `<span class="week-bar"><i class="${pctCls(p)}" style="width:${p || 0}%"></i></span>` +
+        `<span class="dash-wv">${fut ? '' : pctTxt(p)}${m ? `<small>የእኔ ${m.dn}/${m.t}</small>` : ''}</span></button>`;
+    }).join('') + `</div>`;
+  } else if (dashMode === 'month') {
+    const off = (parseDs(r.from).getDay() + 6) % 7;
+    let cells = ''; for (let i = 0; i < off; i++) cells += '<div></div>';
+    r.days.forEach(ds => {
+      const x = byDay[ds], fut = ds > dashToday, p = x && x.o && x.o.has ? x.o.pct : null;
+      cells += `<button type="button" class="dash-mcell ${fut ? 'fut' : pctCls(p)}${ds === dashToday ? ' today' : ''}" data-dday="${ds}"${fut ? ' disabled' : ''}><b>${parseDs(ds).getDate()}</b><small>${fut || p === null ? '' : p + '%'}</small></button>`;
+    });
+    h += `<div class="dash-card glass"><div class="cal-grid">${['ሰኞ', 'ማክ', 'ረቡ', 'ሐሙ', 'አር', 'ቅዳ', 'እሁ'].map(l => `<div class="cal-wd">${l}</div>`).join('')}${cells}</div>` +
+      `<div class="cal-legend"><span><i class="dl hi"></i>80% +</span><span><i class="dl mid"></i>40–79%</span><span><i class="dl lo"></i>ከ 40% በታች</span><span><i class="dl none"></i>ምንም የለም</span></div></div>`;
+  }
+
+  // 4) Since the admin's "start counting" day
+  if (d.start && d.since && d.since.o) {
+    h += `<div class="dash-card glass"><div class="dash-h">ከ ${esc(shortDate(String(d.start).slice(0, 10), true))} ጀምሮ እስከ ዛሬ</div><div class="dash-since">` +
+      `<div><b class="${pctCls(d.since.o.pct)}">${pctTxt(d.since.o.pct)}</b><span>አጠቃላይ</span></div>` +
+      (own && d.since.m ? `<div><b class="${pctCls(d.since.m.pct)}">${pctTxt(d.since.m.pct)}</b><span>የእኔ ድርሻ</span></div>` : '') + `</div></div>`;
+  }
+
+  // 5) Admin only: where counting starts (nothing is ever deleted - the newest choice counts)
+  const w = cloudApi() && cloudApi().who();
+  if (w && w.admin) {
+    h += `<div class="dash-card glass"><div class="dash-h">የቆጠራ መነሻ · አስተዳዳሪ ብቻ</div><p class="clp-p">` +
+      (d.start ? `አሁን «ከ … ጀምሮ» ውጤቱ የሚቆጠረው ከ <b>${esc(shortDate(String(d.start).slice(0, 10), true))}</b> ነው።` : 'አሁን ምንም መነሻ የለም — ሁሉም ታሪክ ይቆጠራል።') +
+      ` መነሻ ሲመርጡ ከዚያ ቀን ጀምሮ ያለው ውጤት ለብቻው ይታያል። ምንም ታሪክ አይጠፋም።</p>` +
+      `<div class="dash-rs"><input type="date" class="clp-sel" id="dashStart" value="${dashToday}" max="${dashToday}" aria-label="የመነሻ ቀን"><button type="button" class="clp-btn" id="dashStartGo">ከዚህ ቀን ጀምር</button></div>` +
+      (d.start ? `<button type="button" class="clp-btn dash-rs2" id="dashStartClear">መነሻውን አስወግድ (ሁሉንም ታሪክ ቁጠር)</button>` : '') + `</div>`;
+  }
+
+  const at = new Date(meta.at), when = `${pad(at.getHours())}:${pad(at.getMinutes())}` + (fmt(at) !== fmt(new Date()) ? ' · ' + shortDate(fmt(at), true) : '');
+  h += `<div class="dash-foot">${meta.off ? '📴 ከመስመር ውጭ — የተቀመጠ ቅጂ · ' : meta.busy ? '↻ በማዘመን ላይ… · ' : ''}የተዘመነው፡ ${when}` +
+    (own ? '<br>🔒 የሌሎች ፕሮግራሞች ስም ወይም ቁጥር ወደዚህ ስልክ አይላክም — አጠቃላይ መቶኛ ብቻ።' : '') + `</div>`;
+  $('dashBody').innerHTML = h;
+}
+async function dashRestart(clear) {
+  const start = clear ? null : (($('dashStart') && $('dashStart').value) || dashToday);
+  if (!clear && start > dashToday) { toast('የወደፊት ቀን መምረጥ አይቻልም'); return; }
+  const i = await choiceDialog(clear ? 'መነሻው ይወገድ? «ከ … ጀምሮ» ውጤቱ ከእንግዲህ አይታይም (ታሪኩ አይጠፋም)።' : `ቆጠራው ከ ${shortDate(start, true)} ይጀምር?`, ['አዎ', 'አይ']);
+  if (i !== 0) return;
+  try {
+    await cloudApi().restart(start, clear);
+    try { localStorage.removeItem(LS_DASH); } catch (e) { /* nothing saved */ }
+    toast('ተቀምጧል።'); loadDash(true);
+  } catch (e) {
+    const m = String(e && e.message || '');
+    toast(/range/.test(m) ? 'ቀኑ ትክክል አይደለም' : /denied/.test(m) ? 'ፈቃድ የለዎትም' : 'ግንኙነት አልተሳካም — እንደገና ይሞክሩ');
+  }
+}
+function openDash() {
+  if (!cloudApi() || document.body.classList.contains('no-dash')) return;
+  dashMode = 'day'; dashDate = today(); dashToday = fmt(today());
+  dashView.classList.add('open'); loadDash(false);
+}
+function closeDash() { dashView.classList.remove('open'); dashSeq++; }
+document.querySelector('.ringcard').addEventListener('click', () => { if (document.body.classList.contains('cloud')) openDash(); });
+$('dashBack').onclick = closeDash;
+$('dashRefresh').onclick = () => loadDash(true);
+$('dashTabs').onclick = e => { const b = e.target.closest('[data-dmode]'); if (!b || b.dataset.dmode === dashMode) return; dashMode = b.dataset.dmode; loadDash(false); };
+$('dashPrev').onclick = () => { dashDate = dashStepDate(-1); loadDash(false); };
+$('dashNext').onclick = () => { const n = dashStepDate(1); if (n) { dashDate = n; loadDash(false); } };
+$('dashDate').onchange = e => { const v = e.target.value; if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return; dashDate = parseDs(v > dashToday ? dashToday : v); loadDash(false); };
+$('dashBody').addEventListener('click', e => {
+  const dd = e.target.closest('[data-dday]');
+  if (dd && !dd.disabled) { dashMode = 'day'; dashDate = parseDs(dd.dataset.dday); loadDash(false); return; }
+  if (e.target.closest('#dashStartGo')) { dashRestart(false); return; }
+  if (e.target.closest('#dashStartClear')) dashRestart(true);
+});
 
 /* ---------- optional daily reminder (works only while this tab/app is open) ---------- */
 function startReminderWatch() {
