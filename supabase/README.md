@@ -14,8 +14,18 @@ Part B1 builds only the **calculation engine**. The Dashboard page itself comes 
 | `19_rollback_dash.sql` | Removes only what B1 added. | `Success. No rows returned` |
 | `20_b2_guards.sql` | **B2.** Delete lock in `app_put`, login speed limit in `app_login`. Tests itself at the end; all or nothing. | A result row: **ALL PASS** (and how many users cannot delete) |
 | `29_rollback_b2.sql` | Removes only what B2 added and puts the old `app_put` / `app_login` back. | `Success. No rows returned` |
+| `30_c_sync.sql` | **Bundle C.** `app_sync`: the same answer as `app_get`, but only the parts that changed (lists only if changed, only changed months of ticks). Tests itself; all or nothing. | A result row: **ALL PASS** |
+| `39_rollback_c.sql` | Removes `app_sync`. The app falls back to `app_get` by itself. | `Success. No rows returned` |
 
-Run `10`, then `11`, then `12` (B1), then `20` (B2). Running a file twice is safe.
+Run `10`, then `11`, then `12` (B1), then `20` (B2), then `30` (C). Running a file twice is safe.
+
+## Bundle C in short
+
+* `app_sync(token, sv, mv, lv, month fingerprints)` calls your existing `app_get` **on the server** (so every rule of `app_get` still
+  applies) and returns `user`, `sv`, `mv`, `lv` always; `shared` only if `sv` differs; `mine` only if `mv` differs; and `hashes`
+  (one md5 per month of ticks) + `months` (only the months whose fingerprint differs) only if `lv` differs.
+* When nothing changed the answer is ~150–300 bytes instead of the whole history.
+* `app_get` is not changed. Without `30_c_sync.sql` the app keeps working with `app_get`.
 
 ## B2 in short
 
