@@ -1,4 +1,4 @@
-/* Tesnim cloud add-on: login + automatic sync + roles + offline-safe sync (Phase 2) + grouped assign list (Phase 3A part 1) + safe first login (Phase 3A part 2) + header avatar & profile page (Bundle A part 3) + one group per category spelling (Bundle A part 4). Edit ONLY the two lines below. */
+/* Tesnim cloud add-on: login + automatic sync + roles + offline-safe sync (Phase 2) + grouped assign list (Phase 3A part 1) + safe first login (Phase 3A part 2) + header avatar & profile page (Bundle A part 3) + one group per category spelling (Bundle A part 4) + Dashboard API, delete lock, login speed limit (Bundle B2). Edit ONLY the two lines below. */
 (function () {
   'use strict';
   var SB_URL = 'https://xdjfiiuqiecntyuarvkq.supabase.co', SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhkamZpaXVxaWVjbnR5dWFydmtxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA3NDM2NDcsImV4cCI6MjEwNjMxOTY0N30.kyiKWvh8OvQQG7vVtLHddc-Sksk_2U3ZVI42o3V51as';
@@ -35,7 +35,7 @@
     try { rawSet.call(ls, 'tesnim_me', JSON.stringify({ id: me.id, username: me.username, is_admin: !!me.is_admin, perms: me.perms || {}, programs: me.programs })); } catch (e) { }
   }
   function wipeLocal(keepToken) {
-    SH.concat(MI, ['tesnim_cv', 'tesnim_curv', 'tesnim_log', 'tesnim_prev', 'tesnim_dirty', 'tesnim_me', 'tesnim_allprogs', 'tesnim_role'], keepToken ? [] : ['tesnim_token']).forEach(function (k) { rawRem.call(ls, k); });
+    SH.concat(MI, ['tesnim_cv', 'tesnim_curv', 'tesnim_log', 'tesnim_prev', 'tesnim_dirty', 'tesnim_me', 'tesnim_allprogs', 'tesnim_role', 'tesnim_dash'], keepToken ? [] : ['tesnim_token']).forEach(function (k) { rawRem.call(ls, k); });
   }
 
   // Every app save to localStorage is pushed to the cloud a moment later
@@ -101,13 +101,23 @@
     if (!jobs.length) { status(); return; }
     Promise.all(jobs).then(function () { net = true; lastOk = Date.now(); status(); }).catch(function (e) {
       if (e && /auth/.test(e.message)) { ls.removeItem('tesnim_token'); return location.reload(); }
+      if (e && /nodelete/.test(e.message)) { net = true; return refusedDel(); }   // Bundle B2: the server said "you may not delete"
       net = false; status(); clearTimeout(timer); timer = setTimeout(push, 15000);   // offline: keep the ticks, try again soon
     });
   }
+  function note(t) { var o = $('cl-note'); if (o) o.remove(); var n = document.createElement('div'); n.id = 'cl-note'; n.textContent = t; document.body.appendChild(n); }
   // The server said no to some ticks (locked day / no permission): show why, then reload the true server copy.
   function refused() {
-    var n = document.createElement('div'); n.id = 'cl-note'; n.textContent = '⛔ ይህ ቀን ተቆልፏል — ለውጡ አልተቀመጠም'; document.body.appendChild(n);
+    note('⛔ ይህ ቀን ተቆልፏል — ለውጡ አልተቀመጠም');
     api('app_get', { p_tok: tok }).then(function (x) { me = x.user; cur = { sv: x.sv, mv: x.mv, lv: x.lv }; apply(x, true); setTimeout(function () { location.reload(); }, 1800); }).catch(function () { });
+  }
+  // Bundle B2: the server refused a save that would delete something (🗑 is off for this user).
+  // Throw away only this phone's unsent program/page/bin changes, keep unsent ticks and own settings, load the true copy.
+  function refusedDel() {
+    note('⛔ መሰረዝ አልተፈቀደልዎትም — ለውጡ አልተቀመጠም');
+    setDirty(0, dirty.m);
+    api('app_get', { p_tok: tok }).then(function (x) { me = x.user; cur = { sv: x.sv, mv: x.mv, lv: x.lv }; apply(x); setTimeout(function () { location.reload(); }, 1800); })
+      .catch(function () { setTimeout(function () { location.reload(); }, 1800); });
   }
   function apply(d, discard) {   // discard = true only when the server refused my ticks
     var pendingTicks = discard ? null : logDiff();   // must be read BEFORE the log is replaced
@@ -129,7 +139,7 @@
   }
   function safe() {
     var a = document.activeElement;
-    return !timer && !pend() && !(a && /INPUT|TEXTAREA/.test(a.tagName)) && !document.querySelector('.overlay.open,#detailView.open,#cl-prof.open');
+    return !timer && !pend() && !(a && /INPUT|TEXTAREA/.test(a.tagName)) && !document.querySelector('.overlay.open,#detailView.open,#cl-prof.open,#dashView.open');
   }
   function classes() {
     var b = document.body; b.classList.add('cloud');
@@ -193,7 +203,7 @@
     '#cl-admin .in{max-width:560px;margin:0 auto;padding:20px 16px 60px}.cl-row{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:12px;margin:8px 0;border-radius:14px;background:#ffffff14}' +
     '.cl-chk{display:flex;gap:10px;align-items:center;padding:7px 0;font-size:15px}.cl-chk input{width:20px;height:20px}#cl-err{color:#ff9d8f;min-height:18px;font-size:14px}.cl-box{max-height:55vh;overflow-y:auto;padding:6px;border-radius:12px;background:#ffffff0d}' +
     'body:not(.is-admin) #importBtn,body:not(.is-admin) #exportBtn{display:none}.no-add #addBtn,.no-add #addPageBtn{display:none}.no-edit .edit,.no-edit [data-pgedit],.no-edit .dtab[data-tab=edit]{display:none}' +
-    '.no-del .del,.no-del [data-pgdel],.no-del #etDelete,.no-del .trash-purge,.no-del #trashClearAll{display:none}.no-trash #trashBtn{display:none}.no-dash .ringcard{display:none}.no-rep #dayRepBtn,.no-rep #weekBtn{display:none}' +
+    '.no-del .del,.no-del [data-pgdel],.no-del #etDelete,.no-del .trash-purge,.no-del #trashClearAll,.no-del [data-catdel],.no-del [data-catdelok],.no-del #importBtn{display:none}.no-trash #trashBtn{display:none}.no-dash .ringcard{display:none}.no-rep #dayRepBtn,.no-rep #weekBtn{display:none}' +
     '.no-tick .tick,.no-tick .subtick,.no-tick .wd-cell{pointer-events:none;opacity:.45}#cl-note{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:70;padding:10px 16px;border-radius:99px;background:#c0392b;color:#fff;font-size:14px;max-width:90vw;text-align:center}' +
     '.no-set #remindBtn{display:none}.no-set.no-trash #settingsBtn,.no-set.no-trash #settingsPanel{display:none}.no-stat [data-openstat],.no-stat .dtab[data-tab=stat]{display:none}.no-cal [data-opencal],.no-cal .dtab[data-tab=cal]{display:none}.no-cal.no-stat.no-edit #detailView{display:none!important}';
   css.textContent += `#cl-login,#cl-admin{background:radial-gradient(circle at 18% 12%,#2f8f6a 0,transparent 45%),radial-gradient(circle at 88% 85%,#ffba0055 0,transparent 42%),linear-gradient(160deg,#0c3b2e,#071f18)}
@@ -271,10 +281,30 @@
   function login() {
     unveil();
     el('cl-login', '<form id="cl-f"><div class="lg-logo">🌿</div><h2>እንኳን ደህና መጡ</h2><p>ለመቀጠል ይግቡ</p><input class="cl-in" id="cl-u" placeholder="የተጠቃሚ ስም" autocapitalize="none" autocomplete="username"><input class="cl-in" id="cl-p" type="password" placeholder="የይለፍ ቃል" autocomplete="current-password"><div id="cl-err"></div><button class="cl-btn" type="submit">ግባ</button></form>');
+    var btn = document.querySelector('#cl-f .cl-btn'), until = 0, cd = null;
+    function mmss(n) { return n >= 60 ? Math.floor(n / 60) + ':' + ('0' + (n % 60)).slice(-2) + ' ደቂቃ' : n + ' ሰከንድ'; }
+    function wait(sec) {   // Bundle B2: too many wrong passwords - count down, and keep the button off until then
+      until = Date.now() + Math.max(1, sec | 0) * 1000; clearInterval(cd);
+      var tick = function () {
+        var left = Math.ceil((until - Date.now()) / 1000);
+        if (left <= 0) { clearInterval(cd); btn.disabled = false; $('cl-err').textContent = ''; return; }
+        btn.disabled = true; $('cl-err').textContent = '⏳ ብዙ ጊዜ የተሳሳተ የይለፍ ቃል ገብቷል። እባክዎ ከ ' + mmss(left) + ' በኋላ እንደገና ይሞክሩ።';
+      };
+      tick(); cd = setInterval(tick, 1000);
+    }
     $('cl-f').onsubmit = function (e) {
-      e.preventDefault(); $('cl-err').textContent = '...';
-      api('app_login', { p_user: $('cl-u').value.trim(), p_pass: $('cl-p').value }).then(function (r) { rawSet.call(ls, 'tesnim_token', r.token); location.reload(); })
-        .catch(function (x) { $('cl-err').textContent = /bad/.test(x.message) ? 'ስሙ ወይም የይለፍ ቃሉ ትክክል አይደለም' : 'ግንኙነት አልተሳካም — ቅንብሩን ያረጋግጡ'; });
+      e.preventDefault(); if (Date.now() < until) return; $('cl-err').textContent = '...';
+      api('app_login', { p_user: $('cl-u').value.trim(), p_pass: $('cl-p').value }).then(function (r) {
+        if (r && r.error) { var er = new Error(r.error); er.wait = r.wait; er.left = r.left; throw er; }
+        if (!r || !r.token) throw new Error('bad');
+        rawSet.call(ls, 'tesnim_token', r.token); location.reload();
+      }).catch(function (x) {
+        var m = String(x && x.message || '');
+        if (/slow/.test(m)) return wait(x.wait || 30);
+        $('cl-err').textContent = /bad/.test(m)
+          ? 'ስሙ ወይም የይለፍ ቃሉ ትክክል አይደለም' + (x.left === 0 ? ' · ብዙ ሙከራዎች ስለተደረጉ ትንሽ ቆይተው ይሞክሩ' : (x.left > 0 && x.left <= 2 ? ' · የቀሩ ሙከራዎች፡ ' + x.left : ''))
+          : 'ግንኙነት አልተሳካም — ቅንብሩን ያረጋግጡ';
+      });
     };
   }
 
@@ -332,7 +362,7 @@
       var taken = {};   // activity id -> name of the OTHER person who already owns it
       users.forEach(function (o) { if (o.id !== u.id && !o.is_admin && Array.isArray(o.programs)) o.programs.forEach(function (g) { taken[g] = o.username; }); });
       box.innerHTML = '<div class="in"><h2>' + (u.id ? 'አርትዕ' : 'አዲስ ተጠቃሚ') + '</h2>' +
-        '<input class="cl-in" id="f-u" placeholder="የተጠቃሚ ስም" value="' + esc(u.username) + '" autocapitalize="none"><br><br><input class="cl-in" id="f-p" type="text" placeholder="' + (u.id ? 'የይለፍ ቃል (ባዶ = አይቀየርም)' : 'የይለፍ ቃል') + '" autocomplete="off">' +
+        '<input class="cl-in" id="f-u" placeholder="የተጠቃሚ ስም" value="' + esc(u.username) + '" autocapitalize="none"><br><br><input class="cl-in" id="f-p" type="password" placeholder="' + (u.id ? 'የይለፍ ቃል (ባዶ = አይቀየርም)' : 'የይለፍ ቃል') + '" autocomplete="new-password">' +
         '<label class="cl-chk"><input type="checkbox" id="f-a"' + (u.is_admin ? ' checked' : '') + '> 👑 አስተዳዳሪ (ሁሉንም ያያል)</label><h3>ሚና</h3><select class="cl-in" id="f-role">' + ROLES.map(function (r) { return '<option value="' + r[0] + '"' + ((u.perms && u.perms.role || 'custom') === r[0] ? ' selected' : '') + '>' + r[1] + '</option>'; }).join('') + '</select><h3>ፈቃዶች</h3>' +
         PERMS.map(function (p) { return '<label class="cl-chk"><input type="checkbox" data-p="' + p[0] + '"' + ((u.perms[p[0]] !== undefined ? u.perms[p[0]] : p[0] === 'tick') ? ' checked' : '') + '> ' + p[1] + '</label>'; }).join('') +
         '<h3>የሚያያቸው ፕሮግራሞች</h3><label class="cl-chk"><input type="checkbox" id="f-all"' + (all ? ' checked' : '') + '> ሁሉም ፕሮግራሞች</label><div class="cl-box" id="f-list">' +
@@ -381,6 +411,12 @@
 
   // ---------- boot ----------
   if (SB_URL.indexOf('YOUR-') === 0) return;   // not configured yet: app works as before
+  // ---------- Bundle B2: what src/main.js may ask the server for (the Dashboard page) ----------
+  window.TesnimCloud = {
+    dash: function (a) { var o = { p_tok: tok }; for (var k in (a || {})) o[k] = a[k]; return api('app_dash', o, 20000); },
+    restart: function (start, clear) { return api('app_dash_restart', { p_tok: tok, p_start: start || null, p_clear: !!clear }); },
+    who: function () { return me ? { id: me.id || me.username, admin: !!me.is_admin, name: me.username } : null; }
+  };
   el('cl-veil');
   if (!tok) return login();
   if (navigator.onLine === false) return offlineStart();   // the phone says there is no network: do not wait

@@ -3,7 +3,7 @@
 // If there is no internet (or it answers too slowly), use the copy saved on
 // the phone. Only this app's own files and its Google Fonts are saved.
 // Supabase (login, ticks, sync) is never touched here - cloud.js handles it.
-const CACHE = 'tesnim-v2';
+const CACHE = 'tesnim-v3';   // Bundle B2: new name = old saved files are cleared once
 const SLOW_MS = 3000;                       // network slower than this -> use the saved copy
 const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 
