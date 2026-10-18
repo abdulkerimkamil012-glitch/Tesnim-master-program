@@ -51,7 +51,8 @@ with percentage reports, streaks, notes, user accounts with roles, and cloud syn
   the server sends only a percent — never names or counts. The last answers are saved on the phone, so it opens offline
   (marked "📴 saved copy"). Tap a day in the week or month view to open that day.
 - **Reference pages** (prohibited foods, notices and any page you add) — read-only for members.
-- **Profile page** (tap the round avatar, top right): your name and role, sync status, theme (light / dark),
+- **Profile page** (tap the round avatar, top right): your name and role, sync status, **storage on this phone** (where, how much,
+  any save error), theme (light / dark),
   automatic logout, and **Logout** (two taps, so it can't happen by accident).
 - **Sync dot on the avatar:** 🟢 synced · 🟡 with a number = that many ticks are waiting to be sent · ⚪ offline.
 - Installable on Android / iPhone ("Add to Home Screen") and works with no internet after the first sync.
@@ -65,6 +66,8 @@ with percentage reports, streaks, notes, user accounts with roles, and cloud syn
   or to "no category" — nothing is ever deleted).
 - **🗑 Recycle Bin** (⚙ Settings): every deleted activity or page stays here until restored or deleted forever.
 - **📤 / 📥 Backup** export and import (admin only).
+- **📦 Import built-ins** (admin, ⚙ Settings): adds the meals, reminders and pages of `src/data.js` to the server's list, and refreshes
+  the ones nobody has edited. Since Bundle C they no longer auto-sync on every phone; a brand-new empty server gets them once automatically.
 - **Dashboard start day** (admin, bottom of the Dashboard): "count from this day" shows a separate "since …" result; nothing is deleted.
 - **👑 Users** (admin, from the profile page): create users, choose a role, and choose which activities each user sees.
   The list is grouped by category, and one switch on a group assigns all of its activities.
@@ -133,37 +136,51 @@ The **streak** counts consecutive days where *every* activity was ✓; an unfini
 
 ## 4. How sync and offline mode work
 
-- Every change you make is saved on the phone first (`localStorage`), then sent to the server about a second later.
-- While the app is on screen it checks the server **once a minute** for changes by other people.
+- Every change is saved on the phone first, in **IndexedDB** (the browser's large storage; the tick history is kept **one record per
+  month**), then sent to the server about a second later. Ticks not yet sent wait in a small **outbox** — there is no second full copy.
+- While the app is on screen it checks the server **once a minute**. With `supabase/30_c_sync.sql` installed it asks `app_sync`
+  for **only what changed** (the lists only if they changed, only the months of ticks that changed — a few hundred bytes when
+  nothing changed). Without it, the app uses `app_get` (everything) as before.
+- **Changes by other people appear in place** — no page reload. If a dialog or edit page is open, they wait until it closes.
 - **Ticks are merged, never overwritten:** the app sends only the ticks *this* phone changed, so two people ticking at once don't erase each other.
 - **Offline:** the app opens from the saved copy and keeps counting your ticks. They are sent automatically when the internet returns
   (the avatar shows 🟡 + the number meanwhile).
-- **Logout never throws away unsent ticks:** it tries to send them first and warns you if it can't.
+- **Saving can fail** (phone storage full): the app says so, shows it on the profile page, keeps the change in memory and retries every
+  15 seconds. If IndexedDB is not available at all (some private windows), it uses `localStorage` instead.
+- **Logout never throws away unsent ticks:** it tries to send them first and warns you if it can't. After logout, nothing of that
+  user stays on the phone.
 - **Automatic logout** (profile page, off by default) only fires when the phone is online and nothing is waiting to be sent.
-- The very **first login needs internet**. After one successful sync, the app opens offline.
-- A **service worker** (`public/sw.js`) asks the network first, so a new version always reaches the phone; if the network is
-  missing or slower than 3 seconds it uses the saved copy.
+- The very **first login needs internet** (the phone must get your data once). Without it the app says "ኢንተርኔት ያስፈልጋል".
+  After one successful sync, it opens offline.
+- A **service worker** (`public/sw.js`) asks the network first for the page, so a new version always reaches the phone; if the network
+  is missing or slower than 3 seconds it uses the saved copy. Build files (`assets/…`) are answered from the phone. Files of old
+  versions are removed after 14 days without use. It works at a domain root or inside a sub-folder.
+- The **Amharic font** (Noto Sans Ethiopic, 55 KB, only the Ethiopic letters) is part of the app, so Amharic looks the same on every
+  phone, also offline.
 
 ---
 
 ## 5. Architecture
 
 ```
- Phone / browser                                                  Supabase (cloud)
- ┌──────────────────────────────────────────────────┐             ┌──────────────────────┐
- │ index.html  – page shell and all dialogs          │             │ Postgres database     │
- │ src/main.js – the app (lists, reports, editing)   │             │ + SQL functions (RPC) │
- │ src/data.js – built-in meals, reminders, pages    │  HTTPS      │   app_login (limit)   │
- │ public/cloud.js – login, sync, roles, profile,    │ ──────────► │   app_get             │
- │                   user admin (loaded BEFORE main) │  /rest/v1/  │   app_put (del lock)  │
- │ public/sw.js – offline copy of the app            │  rpc/…      │   app_put_log         │
- │ localStorage – the phone's saved copy             │ ◄────────── │   admin_list/save/del │
- │                                                   │             │   app_dash (dashboard)│
- └──────────────────────────────────────────────────┘             └──────────────────────┘
+ Phone / browser                                                    Supabase (cloud)
+ ┌────────────────────────────────────────────────────┐             ┌───────────────────────┐
+ │ index.html     – page shell and all dialogs         │             │ Postgres database      │
+ │ src/boot.js    – starts everything, in this order:  │             │ + SQL functions (RPC)  │
+ │   1 src/store.js – IndexedDB (history by month,     │             │   app_login (limit)    │
+ │                    outbox of unsent ticks, events)  │  HTTPS      │   app_sync (changes)   │
+ │   2 src/sync.js  – login, sync, roles, profile,     │ ──────────► │   app_get              │
+ │                    user admin  (src/config.js)      │  /rest/v1/  │   app_put (del lock)   │
+ │   3 src/main.js  – the app (lists, reports, edits)  │  rpc/…      │   app_put_log          │
+ │ src/data.js    – built-in meals, reminders, pages   │ ◄────────── │   admin_list/save/del  │
+ │ public/sw.js   – offline copy of the app            │             │   app_dash (dashboard) │
+ └────────────────────────────────────────────────────┘             └───────────────────────┘
 ```
 
-- `cloud.js` is a classic script that runs first. After login it writes the person's role into `localStorage`, then `main.js` starts and reads it.
-- `cloud.js` watches writes to the app's `localStorage` keys and pushes them to the server (that is how sync is "invisible" to `main.js`).
+- `boot.js` opens the store, logs in and fetches what changed, and only then starts `main.js` — so the app always starts with
+  complete data and never needs a reload to apply it.
+- `main.js` reads and writes through `store.js`. Every change sends an event; `sync.js` listens and sends it to the server.
+  Server changes go into the store and send a `remote` event; `main.js` redraws.
 - There is no framework and no build-time secret: the built site is plain static files.
 
 ---
@@ -193,17 +210,23 @@ tesnim-master-program/
 ├── supabase/                  # SQL to paste into Supabase > SQL Editor (not part of the website build) - see supabase/README.md
 │   ├── 00_audit.sql           # read-only look at the database
 │   ├── 10_ / 11_ / 12_ / 19_  # B1: Dashboard engine (tables, functions, self-test, undo)
-│   └── 20_ / 29_              # B2: delete lock + login speed limit (with self-test), and its undo
+│   ├── 20_ / 29_              # B2: delete lock + login speed limit (with self-test), and its undo
+│   └── 30_ / 39_              # C: app_sync "send only what changed" (with self-test), and its undo
 ├── public/                    # copied as-is into the build
-│   ├── cloud.js               # login + sync + roles + profile page + user admin  (EDIT the 2 config lines here)
-│   ├── sw.js                  # offline service worker (network first, 3 s fallback)
+│   ├── sw.js                  # offline service worker (page: network first, 3 s fallback; build files: from the phone)
 │   ├── manifest.webmanifest   # "Add to Home Screen"
 │   ├── favicon.svg / favicon.ico / apple-touch-icon.png
 │   └── icon-192.png / icon-512.png / icon-maskable-512.png
 └── src/
-    ├── main.js                # the app: counting rules, list, reports, editing, categories, recycle bin, backup
-    ├── data.js                # built-in meals, daily reminders and reference pages
-    └── style.css              # colours, layout, all components
+    ├── boot.js                # first file: opens storage, logs in / syncs, then starts main.js
+    ├── config.js              # THE TWO LINES TO EDIT: Supabase URL and public key
+    ├── store.js               # data on the phone: IndexedDB, history by month, unsent-ticks outbox, events, errors
+    ├── sync.js                # login, sync, roles, profile page, user admin (was public/cloud.js)
+    ├── main.js                # the app: counting rules, list, reports, editing, categories, recycle bin, backup, dashboard
+    ├── data.js                # built-in meals, daily reminders and reference pages (imported by the admin: ⚙ → 📦)
+    ├── style.css              # colours, layout, all components
+    ├── noto-sans-ethiopic-subset.woff   # Amharic font (Ethiopic letters only, 55 KB) — works offline
+    └── OFL-NotoSansEthiopic.txt         # the font's licence (SIL Open Font License)
 ```
 
 ---
@@ -225,10 +248,11 @@ npm run preview    # test the built site
 
 ## 9. Supabase setup
 
-**The two lines to edit** are at the top of `public/cloud.js`:
+**The two lines to edit** are in `src/config.js`:
 
 ```js
-var SB_URL = 'https://YOUR-PROJECT.supabase.co', SB_KEY = 'YOUR-ANON-PUBLIC-KEY';
+export const SB_URL = 'https://YOUR-PROJECT.supabase.co';
+export const SB_KEY = 'YOUR-ANON-PUBLIC-KEY';
 ```
 
 Find them in Supabase → **Project Settings → API** (the *Project URL* and the *anon public* key).
@@ -240,6 +264,7 @@ If `SB_URL` still starts with `YOUR-`, the app runs in plain local mode with no 
 |---|---|
 | `app_login(p_user, p_pass)` | log in, returns a session `token` — or `{error:'bad'}` / `{error:'slow', wait}` (B2 speed limit) |
 | `app_get(p_tok)` | everything this user may see: `user`, `shared`, `mine`, `log`, version numbers |
+| `app_sync(p_tok, p_sv, p_mv, p_lv, p_months)` | Bundle C: the same as `app_get`, but only the parts that changed (`supabase/30_c_sync.sql`) |
 | `app_put(p_tok, p_shared, p_mine)` | save shared data (programs, pages, trash…) and the user's own settings; refuses `nodelete:…` when 🗑 is off (B2) |
 | `app_put_log(p_tok, p_changes)` | save ticks (only the changed ones; returns the ones it refused) |
 | `admin_list(p_tok)` | admin: list users |
@@ -271,14 +296,15 @@ and merge to the main branch only when a set of changes is finished.
 
 **Vercel** — import the repository; Vite is detected automatically (`npm run build`, output `dist`).
 
-No environment variables are needed: the Supabase URL and public key are the two lines in `public/cloud.js`.
+No environment variables are needed: the Supabase URL and public key are the two lines in `src/config.js`.
 Deploy at the **root of a domain** (both hosts do this by default).
 
 ---
 
 ## 11. Data model
 
-Everything lives in `localStorage` on the phone and, for shared data, in the server.
+On the phone everything lives in **IndexedDB** (database `tesnim`: store `kv` for the values below, store `months` with one record
+per month of ticks), and shared data also on the server. Only small per-phone settings stay in `localStorage`.
 
 **Activity** (`tesnim_programs` is an array of these)
 
@@ -310,9 +336,15 @@ true                              // ✓ done
 { …any of the above, n: 'text' }  // plus a note
 ```
 
-**Other keys:** `tesnim_pages`, `tesnim_trash` (Recycle Bin), `tesnim_removed_seeds`, `tesnim_dayov` ("today only" edits),
-`tesnim_first` (first day used), `tesnim_theme`, `tesnim_reminder`, `tesnim_catfold` (folded groups), `tesnim_autologout`,
-and — written by `cloud.js` — `tesnim_token`, `tesnim_me`, `tesnim_role`, `tesnim_prev`, `tesnim_dirty`, `tesnim_cv`, `tesnim_curv`.
+**Other values in IndexedDB:** `tesnim_pages`, `tesnim_trash` (Recycle Bin), `tesnim_removed_seeds`, `tesnim_dayov` ("today only" edits),
+`tesnim_first` (first day used), and — written by `sync.js` — `tesnim_me`, `tesnim_role`, `_sync` (versions + month fingerprints),
+`_dirty`, `_outbox` (unsent ticks), `_synced`, `_v`.
+
+**In localStorage (small, per phone):** `tesnim_token`, `tesnim_theme`, `tesnim_reminder`, `tesnim_catfold` (folded groups),
+`tesnim_autologout`, `tesnim_dash` (saved Dashboard answers).
+
+**Upgrading from an older version:** on the first start the old `localStorage` data is moved into IndexedDB once (unsent ticks
+included) and then removed from `localStorage`.
 
 **Categories** are not a separate table: a category is the name written on its activities. Two spellings that differ only by
 spaces or capital letters ("ምግብ" and "ምግብ ") are treated as one, and everything that saves a category goes through one function
@@ -340,28 +372,28 @@ so a duplicate can't be created again.
 
 | Problem | What to check |
 |---|---|
-| Login says "connection failed" | Is the phone online? Are `SB_URL` / `SB_KEY` in `public/cloud.js` correct? |
+| Login says "connection failed" | Is the phone online? Are `SB_URL` / `SB_KEY` in `src/config.js` correct? |
 | "ስሙ ወይም የይለፍ ቃሉ ትክክል አይደለም" | Wrong user name or password. |
-| App won't open offline on a new phone | The very first login needs internet. Sign in once, wait for 🟢, then it opens offline. |
+| "ኢንተርኔት ያስፈልጋል" on a new phone | The very first login needs internet. Sign in once, wait for 🟢, then it opens offline. |
+| "⚠ … ማስቀመጥ አልተሳካም" | The phone could not save (storage full). Profile → Storage shows the error; free some space. Nothing is lost while the app stays open; it retries every 15 s. |
 | Ticks stay 🟡 | They are waiting for internet; they are sent automatically. Profile → "🔄 አሁን አመሳስል" forces a try. |
 | "⛔ ይህ ቀን ተቆልፏል" | You tried to change a past or future day without the `past` permission. |
 | "⛔ መሰረዝ አልተፈቀደልዎትም" | 🗑 is off for this user, so the server refused a save that would delete something. The phone reloads the true copy. |
 | "⏳ … ከ N ሰከንድ በኋላ" at login | Too many wrong passwords. Wait, or (admin) run `delete from app_login_fails;` in the SQL Editor. |
 | Dashboard says "📴 … የተቀመጠ ቅጂም የለም" | No internet and that period was never opened on this phone. Open it once online. |
 | An old version keeps showing | Close and reopen the app once (the service worker asks the network first). |
-| Amharic text looks different on some phones | The Inter font has no Amharic letters, so Amharic is drawn with the phone's own font. |
-| Installed app is blank at a sub-folder URL | The service worker is registered as `/sw.js`; deploy at a domain root. |
+| Built-in meals missing on a new server | Admin: ⚙ Settings → 📦 import built-ins. |
 | `npm run build` fails | Use Node 18+, run `npm install` first. |
 
 ---
 
 ## 14. Where to edit things
 
-- **Built-in meal / reminder / page text** → `src/data.js`. A fix there reaches everyone who has not personally edited that item.
+- **Built-in meal / reminder / page text** → `src/data.js`, then (admin) ⚙ Settings → 📦 import. Items nobody has edited get the new text.
 - **Colours** → the `:root { … }` block at the top of `src/style.css`.
 - **App name, logo, tab title** → `index.html` (marked with comments).
-- **Supabase URL and key** → the first lines of `public/cloud.js`.
-- **Roles and permission names** → `ROLES` and `PERMS` near the top of `public/cloud.js`.
+- **Supabase URL and key** → `src/config.js`.
+- **Roles and permission names** → `ROLES` and `PERMS` near the top of `src/sync.js`.
 
 ---
 
@@ -373,8 +405,11 @@ so a duplicate can't be created again.
 server; real category objects (colour, order) so assigning a category can also cover activities added later; automatic backups and a
 keep-alive (free Supabase projects pause after a week without use).
 
-**Then (reliability):** move storage from `localStorage` to IndexedDB with the log split by month; send only changes since the last sync;
-bundle an Ethiopic font subset for offline; fix the service-worker path for sub-folder deploys; one data layer instead of patching
-`localStorage.setItem` and reloading the page.
+**Done in Bundle C:** IndexedDB storage with the history by month and an outbox instead of a second copy; `app_sync` sends only what
+changed; the Ethiopic font is bundled; the service worker works in sub-folders and cleans old files; one data layer with events — no
+patching of `localStorage.setItem`, no reloads; built-ins come from the server only.
+
+**Not done yet (on purpose):** voice notes in Supabase Storage (needs the voice-note feature first); folding very old months into
+summaries (not needed until there are several years of history — the month split already keeps saving fast).
 
 **Later:** real push reminders (Web Push), fingerprint unlock, unit tests for the counting and sync logic, and splitting `main.js` into modules.

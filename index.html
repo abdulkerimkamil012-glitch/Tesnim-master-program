@@ -58,6 +58,8 @@
     <button class="setrow" id="trashBtn">🗑 ቆሻሻ መጣያ</button>
     <!-- Category manager: rename / merge / delete a whole category. Hidden (class "edit") for anyone who may not edit. -->
     <button class="setrow edit" id="catsBtn">🏷 ምድቦች</button>
+    <!-- Bundle C: admin only - import the built-in meals / reminders / pages of src/data.js into the server's list (they no longer auto-sync). -->
+    <button class="setrow" id="seedBtn">📦 አብሮ የተሰሩትን ከ data.js አስገባ</button>
   </div>
 
   <div class="daynav">
@@ -195,7 +197,7 @@
   <div class="detail-body" id="dashBody"></div>
 </div>
 
-  <script src="/cloud.js"></script>
-  <script type="module" src="/src/main.js"></script>
+  <!-- Bundle C: one entry file. It opens the phone's storage, logs in / syncs (src/sync.js), then starts the app (src/main.js). -->
+  <script type="module" src="/src/boot.js"></script>
 </body>
 </html>
