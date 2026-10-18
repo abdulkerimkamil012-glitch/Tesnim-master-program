@@ -1,4 +1,4 @@
-# supabase/ — the server side of the Dashboard (Part B1)
+# supabase/ — the server side (Part B1: Dashboard engine · Part B2: delete lock + login speed limit)
 
 This folder holds SQL files. You paste them into **Supabase > SQL Editor**; they are not part of the website build.
 Part B1 builds only the **calculation engine**. The Dashboard page itself comes in Part B2.
@@ -12,8 +12,23 @@ Part B1 builds only the **calculation engine**. The Dashboard page itself comes 
 | `11_dash_functions.sql` | Creates the calculator, `app_dash` and `app_dash_restart`, and locks every helper. | `Success. No rows returned` |
 | `12_dash_selftest.sql` | The exam: 19 made-up situations + the percent rule + the lock check. Touches no data. | A result row: **ALL PASS** |
 | `19_rollback_dash.sql` | Removes only what B1 added. | `Success. No rows returned` |
+| `20_b2_guards.sql` | **B2.** Delete lock in `app_put`, login speed limit in `app_login`. Tests itself at the end; all or nothing. | A result row: **ALL PASS** (and how many users cannot delete) |
+| `29_rollback_b2.sql` | Removes only what B2 added and puts the old `app_put` / `app_login` back. | `Success. No rows returned` |
 
-Run `10`, then `11`, then `12`. Running a file twice is safe.
+Run `10`, then `11`, then `12` (B1), then `20` (B2). Running a file twice is safe.
+
+## B2 in short
+
+* `app_put` and `app_login` were **renamed** to `_app_put_core` and `_app_login_core` (their code is untouched) and locked.
+  New `app_put` / `app_login` with the same inputs check first, then hand over to the old ones.
+* **Delete lock** (`del_guard`): a user without 🗑 cannot remove an activity (or move it to the bin), a page, a whole category
+  (activities left with no category), or a bin entry that was not restored. Error: `nodelete:program|page|trash|category`.
+  Admins are never locked. Restore, rename, merge, edit and ticks are allowed.
+* **Login speed limit** (`app_login_fails`): 5 wrong for a user name / 20 wrong from one address within an hour → wait 30 s,
+  then 1, 2, 4, 8 min, at most 15 min. A wrong or blocked login answers `{error:'bad'|'slow', wait, token:'000…'}` instead of
+  raising an error (an error would also erase the count). The all-zero token is never a real login, so an older copy of the
+  app just returns to the login screen.
+* Unlock everyone at once: `delete from app_login_fails;`
 
 ## Compare with the app (after ALL PASS)
 
@@ -48,7 +63,7 @@ select d as day, t as total, dn as done, pt as partly, fl as not_done, sp, publi
 
 ## Safety notes
 
-* Nothing here changes an existing table or function (`admin_*`, `app_get`, `app_login`, `app_put`, `app_put_log`, `_me`, `app_today`).
+* B1 changes no existing table or function. B2 only **renames** `app_put` and `app_login` (see above); `admin_*`, `app_get`, `app_put_log`, `_me` and `app_today` are untouched.
 * Every `dash_` helper is locked: it cannot be called from the website or the app. Only `app_dash` and `app_dash_restart` are open to the public key, and both check the login token first.
 * The `marks` list shows the admin's username (field `by`). That is part of the shared contract.
 * Before you paste the `00_audit.sql` result anywhere, hide any secret that appears in the `APP_CONFIG` rows.
@@ -57,4 +72,6 @@ select d as day, t as total, dn as done, pt as partly, fl as not_done, sp, publi
 
 * An error that starts with `SELFTEST FAILED` or `LOCK CHECK FAILED`: copy the whole message and send it to me. Nothing in your data was changed.
 * `relation "app_dash_marks" does not exist`: run `10_dash_tables.sql` first.
-* To undo everything: run `19_rollback_dash.sql`.
+* To undo B2: run `29_rollback_b2.sql`. To undo B1: run `19_rollback_dash.sql` (undo B2 first).
+* `B1 is missing` when running `20`: run `10` and `11` first.
+* `CHECK FAILED: table app_users has no column "perms"` or `… not found`: send me the message; nothing was changed.
