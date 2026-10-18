@@ -46,6 +46,10 @@ with percentage reports, streaks, notes, user accounts with roles, and cloud syn
 - Every card has a **week strip** (Mon–Sun), its **streak**, this week's %, and shortcuts to its
   **Calendar** and **Statistics**.
 - **Day report** and **weekly report**: today's %, streak, what is left, a 7-day bar chart, and a "needs attention" list.
+- **◔ Dashboard** (tap the ring card): **Day / Week / Month** tabs and a date picker. It is computed **on the server**, so
+  everyone sees the same **Overall %**. A member who only sees some activities also gets **My part**; for everything else
+  the server sends only a percent — never names or counts. The last answers are saved on the phone, so it opens offline
+  (marked "📴 saved copy"). Tap a day in the week or month view to open that day.
 - **Reference pages** (prohibited foods, notices and any page you add) — read-only for members.
 - **Profile page** (tap the round avatar, top right): your name and role, sync status, theme (light / dark),
   automatic logout, and **Logout** (two taps, so it can't happen by accident).
@@ -61,6 +65,7 @@ with percentage reports, streaks, notes, user accounts with roles, and cloud syn
   or to "no category" — nothing is ever deleted).
 - **🗑 Recycle Bin** (⚙ Settings): every deleted activity or page stays here until restored or deleted forever.
 - **📤 / 📥 Backup** export and import (admin only).
+- **Dashboard start day** (admin, bottom of the Dashboard): "count from this day" shows a separate "since …" result; nothing is deleted.
 - **👑 Users** (admin, from the profile page): create users, choose a role, and choose which activities each user sees.
   The list is grouped by category, and one switch on a group assigns all of its activities.
 - **Daily reminder** at 8 AM — fires only while the app is open (a closed-app push needs a server; see the roadmap).
@@ -76,13 +81,13 @@ You can still tick permissions one by one ("custom").
 |---|---|
 | `tick` | ✓ mark activities (today) |
 | `past` | change **past** days (never future days) |
-| `dash` | see the overall result ring |
+| `dash` | see the result ring and the ◔ Dashboard |
 | `rep` | day and weekly reports |
 | `stat` | Statistics tab |
 | `cal` | Calendar tab |
 | `add` | ＋ add activities and pages |
 | `edit` | ✎ edit activities, pages and categories |
-| `del` | 🗑 delete |
+| `del` | 🗑 delete. **Off = the person cannot delete anything**: activities, pages, whole categories, deleting forever from the Recycle Bin, emptying it, and backup import. The buttons are hidden **and the server refuses** such a save (restoring, renaming and editing still work). |
 | `trash` | ♻ Recycle Bin |
 | `set` | ⚙ Settings (reminder etc.) |
 
@@ -94,6 +99,10 @@ You can still tick permissions one by one ("custom").
 | ✎ **Editor** | `add edit del trash dash rep set stat cal tick` | all |
 | ⚙ **Custom** | whatever you tick | assigned, or all |
 | 👑 **Admin** | everything, including Users and Backup | all |
+
+**Login speed limit:** 5 wrong passwords for one user name within an hour → that name must wait 30 seconds, then 1, 2, 4, 8 minutes,
+at most 15. 20 wrong passwords from one internet address → that address waits the same way. The login screen counts down.
+A correct password clears the count.
 
 **Day lock:** everyone edits only **today**. Past days need `past`. Future days are never editable.
 The server is also asked to enforce it: if it refuses a tick, the app shows
@@ -144,11 +153,12 @@ The **streak** counts consecutive days where *every* activity was ✓; an unfini
  ┌──────────────────────────────────────────────────┐             ┌──────────────────────┐
  │ index.html  – page shell and all dialogs          │             │ Postgres database     │
  │ src/main.js – the app (lists, reports, editing)   │             │ + SQL functions (RPC) │
- │ src/data.js – built-in meals, reminders, pages    │  HTTPS      │   app_login           │
+ │ src/data.js – built-in meals, reminders, pages    │  HTTPS      │   app_login (limit)   │
  │ public/cloud.js – login, sync, roles, profile,    │ ──────────► │   app_get             │
- │                   user admin (loaded BEFORE main) │  /rest/v1/  │   app_put             │
+ │                   user admin (loaded BEFORE main) │  /rest/v1/  │   app_put (del lock)  │
  │ public/sw.js – offline copy of the app            │  rpc/…      │   app_put_log         │
  │ localStorage – the phone's saved copy             │ ◄────────── │   admin_list/save/del │
+ │                                                   │             │   app_dash (dashboard)│
  └──────────────────────────────────────────────────┘             └──────────────────────┘
 ```
 
@@ -180,6 +190,10 @@ tesnim-master-program/
 ├── README.md
 ├── docs/
 │   └── screenshots/           # images used by this README
+├── supabase/                  # SQL to paste into Supabase > SQL Editor (not part of the website build) - see supabase/README.md
+│   ├── 00_audit.sql           # read-only look at the database
+│   ├── 10_ / 11_ / 12_ / 19_  # B1: Dashboard engine (tables, functions, self-test, undo)
+│   └── 20_ / 29_              # B2: delete lock + login speed limit (with self-test), and its undo
 ├── public/                    # copied as-is into the build
 │   ├── cloud.js               # login + sync + roles + profile page + user admin  (EDIT the 2 config lines here)
 │   ├── sw.js                  # offline service worker (network first, 3 s fallback)
@@ -224,17 +238,22 @@ If `SB_URL` still starts with `YOUR-`, the app runs in plain local mode with no 
 
 | Function | Used for |
 |---|---|
-| `app_login(p_user, p_pass)` | log in, returns a session `token` |
+| `app_login(p_user, p_pass)` | log in, returns a session `token` — or `{error:'bad'}` / `{error:'slow', wait}` (B2 speed limit) |
 | `app_get(p_tok)` | everything this user may see: `user`, `shared`, `mine`, `log`, version numbers |
-| `app_put(p_tok, p_shared, p_mine)` | save shared data (programs, pages, trash…) and the user's own settings |
+| `app_put(p_tok, p_shared, p_mine)` | save shared data (programs, pages, trash…) and the user's own settings; refuses `nodelete:…` when 🗑 is off (B2) |
 | `app_put_log(p_tok, p_changes)` | save ticks (only the changed ones; returns the ones it refused) |
 | `admin_list(p_tok)` | admin: list users |
 | `admin_save(p_tok, p_id, p_username, p_pass, p_admin, p_perms, p_programs)` | admin: create / edit a user |
 | `admin_delete(p_tok, p_id)` | admin: delete a user |
+| `app_dash(p_tok, p_from, p_to, p_wd, p_dates)` | the Dashboard numbers (B1 engine, `supabase/11_dash_functions.sql`) |
+| `app_dash_restart(p_tok, p_start, p_clear)` | admin: set / remove the Dashboard start day |
 
-> ⚠ **The SQL that creates these tables and functions is not in this repository yet** — it only exists inside the Supabase project.
-> Until it is exported into a `/supabase` folder, a new Supabase project **cannot** be set up from this repo alone.
-> To export it: Supabase → **SQL Editor** → copy each function (and table definition) into `supabase/*.sql`. This is the first task of the next bundle.
+The Dashboard engine (B1) and the delete lock + login limit (B2) are in the `supabase/` folder — see `supabase/README.md` for the order.
+
+> ⚠ The **original** tables and functions (`app_users`, `app_shared`, `app_log`, `app_login`, `app_get`, `app_put`, `admin_*` …) still
+> exist only inside the Supabase project, so a brand-new Supabase project cannot yet be set up from this repo alone.
+> B2 did not need their code: it renamed the old `app_put` / `app_login` to `_app_put_core` / `_app_login_core` and put a checking
+> function with the same name in front of each.
 
 ---
 
@@ -308,9 +327,11 @@ so a duplicate can't be created again.
 - The built-in meals and reminders in `src/data.js` are part of the **public JavaScript** — anyone who opens the site's files can read them.
   Hiding an activity from a member hides it in the app, not from someone inspecting the files. Put anything private in activities you add
   inside the app, not in `data.js`.
-- Restricted members only get their assigned activities in their program list, but the **Recycle Bin** is part of the shared data that
-  goes to every phone (the app hides it). Server-side filtering is planned.
-- The login password field uses a normal password box; the admin user form shows a typed password in clear text on screen.
+- The **Dashboard** is computed on the server; a restricted member receives only percents for activities that are not theirs.
+- **Delete lock** (B2): when 🗑 is off for a user, the server itself refuses any save that would remove an activity, a page, a whole
+  category or a Recycle Bin entry (restoring is allowed). Admins are never locked. Notes and un-ticking are not treated as deleting.
+- **Login speed limit** (B2): see section 2. A locked-out admin can clear it in the SQL Editor with `delete from app_login_fails;`.
+- Sessions expire after 90 days (in `_me`). Both password boxes hide what is typed.
 - **Use 📤 Backup regularly.** Clearing the browser's data on a phone removes its local copy (the server copy remains).
 
 ---
@@ -324,6 +345,9 @@ so a duplicate can't be created again.
 | App won't open offline on a new phone | The very first login needs internet. Sign in once, wait for 🟢, then it opens offline. |
 | Ticks stay 🟡 | They are waiting for internet; they are sent automatically. Profile → "🔄 አሁን አመሳስል" forces a try. |
 | "⛔ ይህ ቀን ተቆልፏል" | You tried to change a past or future day without the `past` permission. |
+| "⛔ መሰረዝ አልተፈቀደልዎትም" | 🗑 is off for this user, so the server refused a save that would delete something. The phone reloads the true copy. |
+| "⏳ … ከ N ሰከንድ በኋላ" at login | Too many wrong passwords. Wait, or (admin) run `delete from app_login_fails;` in the SQL Editor. |
+| Dashboard says "📴 … የተቀመጠ ቅጂም የለም" | No internet and that period was never opened on this phone. Open it once online. |
 | An old version keeps showing | Close and reopen the app once (the service worker asks the network first). |
 | Amharic text looks different on some phones | The Inter font has no Amharic letters, so Amharic is drawn with the phone's own font. |
 | Installed app is blank at a sub-folder URL | The service worker is registered as `/sw.js`; deploy at a domain root. |
@@ -343,9 +367,11 @@ so a duplicate can't be created again.
 
 ## 15. Roadmap
 
-**Next (needs the server):** export the SQL into `/supabase`; compute the shared dashboard on the server so nobody can see names of
-activities that aren't theirs; filter tick logs, notes and the Recycle Bin per user on the server; real category objects (colour, order)
-stored on the server so assigning a category can also cover activities added later; login rate-limiting and token expiry; automatic backups.
+**Done in Bundle B:** server-computed Dashboard (B1 engine + B2 page), delete lock enforced on the server, login speed limit.
+
+**Next (needs the server):** export the original tables and functions into `/supabase`; filter tick logs and notes per user on the
+server; real category objects (colour, order) so assigning a category can also cover activities added later; automatic backups and a
+keep-alive (free Supabase projects pause after a week without use).
 
 **Then (reliability):** move storage from `localStorage` to IndexedDB with the log split by month; send only changes since the last sync;
 bundle an Ethiopic font subset for offline; fix the service-worker path for sub-folder deploys; one data layer instead of patching

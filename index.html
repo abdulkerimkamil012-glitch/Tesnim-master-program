@@ -69,6 +69,8 @@
   <div class="ringcard glass">
     <svg class="ring" viewBox="0 0 64 64" aria-hidden="true"><circle class="ring-track" cx="32" cy="32" r="26"/><circle class="ring-fill" id="ringFill" cx="32" cy="32" r="26"/></svg>
     <div class="ring-text" id="ringText"></div>
+    <!-- Dashboard (Bundle B2): computed on the server, the same overall % for everyone. Shown only when logged in. -->
+    <button type="button" class="dash-open" id="dashBtn" aria-label="ዳሽቦርድ ክፈት">◔ ዳሽቦርድ ›</button>
   </div>
 
   <div class="pillrow">
@@ -170,6 +172,27 @@
     <button type="button" class="setrow trash-clear-all" id="trashClearAll" hidden>ባዶ አድርግ</button>
   </div>
   <div class="detail-body" id="trashBody"></div>
+</div>
+
+<!-- Dashboard (Bundle B2): Day / Week / Month, a date picker, "Overall %" for everyone and "My part" for each member.
+     Same full-screen layout as the program detail view. Filled by main.js from the server (app_dash). -->
+<div class="detail" id="dashView" role="dialog" aria-modal="true" aria-label="ዳሽቦርድ">
+  <div class="detail-head">
+    <button class="arrow" id="dashBack" aria-label="ተመለስ">‹</button>
+    <div class="detail-title">ዳሽቦርድ</div>
+    <button type="button" class="dash-refresh" id="dashRefresh" aria-label="አድስ">↻</button>
+  </div>
+  <div class="detail-tabs" id="dashTabs">
+    <button class="dtab active" data-dmode="day">ቀን</button>
+    <button class="dtab" data-dmode="week">ሳምንት</button>
+    <button class="dtab" data-dmode="month">ወር</button>
+  </div>
+  <div class="dash-nav">
+    <button type="button" class="dash-arrow" id="dashPrev" aria-label="ቀዳሚ">‹</button>
+    <label class="dash-pick"><span id="dashLabel"></span><input type="date" id="dashDate" aria-label="ቀን ምረጥ"></label>
+    <button type="button" class="dash-arrow" id="dashNext" aria-label="ቀጣይ">›</button>
+  </div>
+  <div class="detail-body" id="dashBody"></div>
 </div>
 
   <script src="/cloud.js"></script>
