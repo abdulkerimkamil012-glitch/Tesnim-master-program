@@ -11,11 +11,17 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 --btn:linear-gradient(135deg,#D3E8BC,#8FB47F);--btnfg:#0C3B2E;--ring:#C7E2AE;--gold:#FFBA00;--sh:0 8px 32px rgba(0,0,0,.35);--blob1:#BB8A52;--blob2:#6D9773}}
 :root[data-theme="dark"]{--bg1:#0A2A20;--bg2:#24483A;--glass:rgba(255,255,255,.07);--gb:rgba(255,255,255,.15);--sheet:rgba(14,44,35,.92);--text:#EAF3E6;--muted:#A9C4B1;
 --btn:linear-gradient(135deg,#D3E8BC,#8FB47F);--btnfg:#0C3B2E;--ring:#C7E2AE;--gold:#FFBA00;--sh:0 8px 32px rgba(0,0,0,.35);--blob1:#BB8A52;--blob2:#6D9773}
+/* ---- Bundle C: Amharic font that works OFFLINE ----
+   Inter and Playfair have no Amharic letters, so before this every phone drew Amharic with whatever font it had.
+   This is Noto Sans Ethiopic (SIL Open Font License, see src/OFL-NotoSansEthiopic.txt), cut down to the Ethiopic
+   letters only (55 KB, weights 400-700). It is part of the app, so the offline worker saves it with everything else.
+   unicode-range = the browser downloads it only when Amharic text is on screen, and uses it only for those letters. */
+@font-face{font-family:"Noto Sans Ethiopic";src:url("./noto-sans-ethiopic-subset.woff") format("woff");font-weight:400 700;font-style:normal;font-display:swap;unicode-range:U+1200-139F,U+2D80-2DDF,U+AB00-AB2F}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 [hidden]{display:none!important}
 html{height:100%}
 /* Base font — change the family list here if you want a different typeface */
-body{min-height:100%;margin:0 auto;max-width:560px;background:linear-gradient(165deg,var(--bg1),var(--bg2)) fixed;color:var(--text);font-family:Inter,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{min-height:100%;margin:0 auto;max-width:560px;background:linear-gradient(165deg,var(--bg1),var(--bg2)) fixed;color:var(--text);font-family:Inter,"Noto Sans Ethiopic",-apple-system,"Segoe UI",Roboto,sans-serif}
 button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
 :focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 @media (prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;transition-duration:.001ms!important}}
@@ -26,7 +32,7 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 .glass{background:var(--glass);border:1px solid var(--gb);-webkit-backdrop-filter:blur(20px) saturate(150%);backdrop-filter:blur(20px) saturate(150%);box-shadow:var(--sh),inset 0 1px 0 rgba(255,255,255,.28)}
 header{padding:20px 18px 6px}
 .top-row{display:flex;align-items:center;justify-content:space-between}
-h1.title{margin:0;font:700 1.5rem/1.2 "Playfair Display",Georgia,serif}
+h1.title{margin:0;font:700 1.5rem/1.2 "Playfair Display","Noto Sans Ethiopic",Georgia,serif}
 .tools{display:flex;gap:6px}
 .ibtn{width:38px;height:38px;border-radius:50%;font-size:1rem;flex-shrink:0}
 .settings-panel{display:none;margin-top:8px;padding:4px 8px;border-radius:16px}
@@ -46,7 +52,7 @@ svg.ring{width:68px;height:68px;transform:rotate(-90deg);flex-shrink:0}
 .ring-track{stroke:var(--gb)}
 .ring-fill{stroke:var(--ring);stroke-linecap:round;transition:stroke-dashoffset .5s ease;filter:drop-shadow(0 0 5px var(--ring))}
 .ring-text{color:var(--muted);font-size:.85rem}
-.ring-text b{color:var(--text);font:700 1.5rem "Playfair Display",Georgia,serif}
+.ring-text b{color:var(--text);font:700 1.5rem "Playfair Display","Noto Sans Ethiopic",Georgia,serif}
 .week-panel,.info-panel{display:none;margin-top:10px;padding:14px;border-radius:20px}
 .week-panel.open,.info-panel.open{display:block}
 .week-total{font-weight:700;margin-bottom:10px;color:var(--gold)}
@@ -81,7 +87,7 @@ main{padding:6px 18px 40px}
 background:var(--sheet);border:1px solid var(--gb);border-bottom:0;border-radius:26px 26px 0 0;-webkit-backdrop-filter:blur(28px) saturate(150%);backdrop-filter:blur(28px) saturate(150%);
 transform:translateY(105%);transition:transform .28s ease}
 .sheet.open{transform:none}
-.sheet h2{margin:0 0 14px;font:700 1.15rem "Playfair Display",serif}
+.sheet h2{margin:0 0 14px;font:700 1.15rem "Playfair Display","Noto Sans Ethiopic",serif}
 .sheet label{display:block;font-size:.78rem;color:var(--muted);margin-bottom:4px;font-weight:600}
 .sheet input,.sheet textarea{width:100%;padding:12px 13px;margin-bottom:14px;border:1px solid var(--gb);border-radius:14px;background:var(--glass);color:var(--text);font:inherit;font-size:.9rem}
 .sheet textarea{min-height:110px;resize:vertical;white-space:pre-line}
@@ -163,7 +169,7 @@ h1.title{white-space:normal}
 .detail.open{display:block}
 .detail-head{display:flex;align-items:center;gap:10px;padding:16px 18px 4px;max-width:560px;margin:0 auto}
 .detail-head .arrow{width:38px;height:38px;font-size:1.3rem;color:var(--muted);flex-shrink:0}
-.detail-title{flex:1;font:700 1.1rem "Playfair Display",Georgia,serif;min-width:0;overflow-wrap:anywhere}
+.detail-title{flex:1;font:700 1.1rem "Playfair Display","Noto Sans Ethiopic",Georgia,serif;min-width:0;overflow-wrap:anywhere}
 .detail-tabs{display:flex;gap:6px;padding:12px 18px;max-width:560px;margin:0 auto}
 .dtab{flex:1;padding:10px 4px;border-radius:14px;font-size:.8rem;font-weight:700;color:var(--muted);background:var(--glass);border:1px solid var(--gb)}
 .dtab.active{background:var(--btn);color:var(--btnfg);border-color:transparent}
@@ -204,7 +210,7 @@ h1.title{white-space:normal}
 .stat-bar i{display:block;height:100%;background:var(--btn);border-radius:6px}
 .streak-card{display:flex;gap:18px;margin:10px 0 18px}
 .streak-card>div{flex:1;padding:14px;border-radius:18px;text-align:center}
-.streak-card b{display:block;font:700 1.4rem "Playfair Display",Georgia,serif;color:var(--gold)}
+.streak-card b{display:block;font:700 1.4rem "Playfair Display","Noto Sans Ethiopic",Georgia,serif;color:var(--gold)}
 .streak-card span{font-size:.72rem;color:var(--muted)}
 
 /* ---- Recycle Bin view (reuses .detail / .detail-head / .detail-body from
@@ -326,7 +332,7 @@ body.cloud #themeBtn{display:none}   /* the theme switch now lives on the profil
 #cl-prof{z-index:15}
 .clp-who{display:flex;align-items:center;gap:14px;margin-top:10px;padding:18px;border-radius:22px}
 .clp-av{width:58px;height:58px;border-radius:50%;flex-shrink:0;display:grid;place-items:center;font-size:1.5rem;font-weight:700;background:linear-gradient(145deg,#ffd760,#e79a00);color:#3b2a00}
-.clp-name{font:700 1.2rem "Playfair Display",Georgia,serif;overflow-wrap:anywhere}
+.clp-name{font:700 1.2rem "Playfair Display","Noto Sans Ethiopic",Georgia,serif;overflow-wrap:anywhere}
 .clp-role{margin-top:2px;font-size:.85rem;color:var(--muted)}
 .clp-card{margin-top:12px;padding:14px 16px;border-radius:20px}
 .clp-h{margin-bottom:8px;font-size:.78rem;font-weight:600;color:var(--muted)}
@@ -387,16 +393,16 @@ body.cloud .dash-open{display:block}
 .dash-hero{display:flex;align-items:center;gap:18px;margin-top:10px;padding:18px;border-radius:24px}
 .dash-ringwrap{position:relative;width:112px;height:112px;flex-shrink:0}
 svg.dash-ring{width:112px;height:112px}
-.dash-big{position:absolute;inset:0;display:grid;place-items:center;font:700 1.6rem "Playfair Display",Georgia,serif}
+.dash-big{position:absolute;inset:0;display:grid;place-items:center;font:700 1.6rem "Playfair Display","Noto Sans Ethiopic",Georgia,serif}
 .dash-hero-t{min-width:0}
 .dash-h{font-size:.8rem;font-weight:700;color:var(--muted);margin-bottom:4px}
 .dash-sub{font-size:.85rem;line-height:1.5;color:var(--text);margin-top:2px}
 .dash-card{margin-top:12px;padding:14px 16px;border-radius:20px}
 .dash-mine{display:flex;align-items:center;gap:16px}
-.dash-mine-n{flex-shrink:0;min-width:84px;text-align:center;font:700 1.7rem "Playfair Display",Georgia,serif}
+.dash-mine-n{flex-shrink:0;min-width:84px;text-align:center;font:700 1.7rem "Playfair Display","Noto Sans Ethiopic",Georgia,serif}
 .dash-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
 .dash-tile{padding:12px 4px;border-radius:16px;text-align:center}
-.dash-tile b{display:block;font:700 1.3rem "Playfair Display",Georgia,serif}
+.dash-tile b{display:block;font:700 1.3rem "Playfair Display","Noto Sans Ethiopic",Georgia,serif}
 .dash-tile span{display:block;margin-top:2px;font-size:.66rem;line-height:1.3;color:var(--muted)}
 #dashView .hi{color:var(--ring)}#dashView .mid{color:var(--gold)}#dashView .lo{color:#C0524A}#dashView .none{color:var(--muted)}
 .week-bar i.none{width:0!important}
@@ -419,7 +425,7 @@ svg.dash-ring{width:112px;height:112px}
 .cal-legend i.dl.hi{background:rgba(94,138,102,.6)}.cal-legend i.dl.mid{background:rgba(255,186,0,.6)}.cal-legend i.dl.lo{background:rgba(192,82,74,.6)}.cal-legend i.dl.none{border:1px solid var(--gb)}
 .dash-since{display:flex;gap:12px}
 .dash-since>div{flex:1;text-align:center}
-.dash-since b{display:block;font:700 1.5rem "Playfair Display",Georgia,serif}
+.dash-since b{display:block;font:700 1.5rem "Playfair Display","Noto Sans Ethiopic",Georgia,serif}
 .dash-since span{font-size:.72rem;color:var(--muted)}
 .dash-rs{display:flex;gap:8px}
 .dash-rs .clp-sel{flex:1;min-width:0}
@@ -427,3 +433,12 @@ svg.dash-ring{width:112px;height:112px}
 .dash-rs2{margin-top:8px}
 .dash-foot{margin:16px 4px 0;font-size:.72rem;line-height:1.6;color:var(--muted);text-align:center}
 @media (max-width:360px){.dash-hero{gap:12px;padding:14px}.dash-ringwrap,svg.dash-ring{width:92px;height:92px}.dash-big{font-size:1.35rem}}
+
+/* ---- Bundle C: storage card on the profile page, admin import button ---- */
+.clp-kv{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-top:1px solid var(--gb);font-size:.82rem}
+.clp-kv:first-child{border-top:0}
+.clp-kv span{color:var(--muted);flex-shrink:0}
+.clp-kv b{text-align:end;font-weight:600;overflow-wrap:anywhere}
+.clp-err{margin-top:8px;padding:10px 12px;border-radius:12px;background:rgba(192,82,74,.15);border:1px solid #C0524A;color:var(--text);font-size:.78rem;line-height:1.55}
+#seedBtn{display:none}
+body.cloud.is-admin #seedBtn{display:block}

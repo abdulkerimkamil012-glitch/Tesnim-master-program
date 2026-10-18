@@ -1,6 +1,8 @@
-// Bundle B2: Dashboard page (server numbers, Day / Week / Month) and the delete lock (🗑 off = no delete button works anywhere). Categories (Bundle A part 4): one canonical name per category, a picker instead of free typing, rename / merge / delete for a whole category, grouped list. History safety (Bundle A parts 1-2): adding, deleting, restoring, re-scheduling, adding/removing sub-items or switching single <-> master never changes a day that is already over. Phase 3A part 4: the ring, reports, statistics and calendar understand ✗ / % / notes (60% counts as 60; the streak still needs a full ✓). Part 3: a note per activity per day (📝). Part 2: results ✓ done, ✗ not done, 1-99% partly done.
+// Bundle C: all data now lives in src/store.js (IndexedDB, history by month) and server changes arrive as a 'remote' event (no reload); built-in data.js items come from the server only (admin: ⚙ → 📦 import). Bundle B2: Dashboard page (server numbers, Day / Week / Month) and the delete lock (🗑 off = no delete button works anywhere). Categories (Bundle A part 4): one canonical name per category, a picker instead of free typing, rename / merge / delete for a whole category, grouped list. History safety (Bundle A parts 1-2): adding, deleting, restoring, re-scheduling, adding/removing sub-items or switching single <-> master never changes a day that is already over. Phase 3A part 4: the ring, reports, statistics and calendar understand ✗ / % / notes (60% counts as 60; the streak still needs a full ✓). Part 3: a note per activity per day (📝). Part 2: results ✓ done, ✗ not done, 1-99% partly done.
 import './style.css';
 import { MEALS as SEED_MEALS, DAILY as SEED_DAILY, INFO_PAGES as SEED_PAGES, WD } from './data.js';
+import { store } from './store.js';   // Bundle C: the one data layer (src/boot.js opened it before this file runs)
+const CLOUD = !!window.TesnimCloud;   // logged in to Supabase (src/sync.js) - or running alone on this phone
 
 /* ============================================================
    STORAGE KEYS — everything the app remembers lives under these.
@@ -24,8 +26,8 @@ const PDAY_LABELS = ['ሰኞ', 'ማክሰኞ', 'ረቡዕ', 'ሐሙስ', 'አር
 // The date this app first ever ran on this phone/browser. Used as the
 // "started on" date for seed programs, so all-time statistics have a
 // sensible starting point instead of counting days before they existed.
-let FIRST_RUN = localStorage.getItem(LS_FIRST);
-if (!FIRST_RUN) { FIRST_RUN = fmt(today()); localStorage.setItem(LS_FIRST, FIRST_RUN); }
+let FIRST_RUN = store.get(LS_FIRST);
+if (!FIRST_RUN) { FIRST_RUN = fmt(today()); store.set(LS_FIRST, FIRST_RUN); }
 
 /* ============================================================
    ROLE + DAY LOCK (written by public/cloud.js after login).
@@ -36,7 +38,7 @@ if (!FIRST_RUN) { FIRST_RUN = fmt(today()); localStorage.setItem(LS_FIRST, FIRST
    future days never. The server enforces the same rule (app_put_log).
    ============================================================ */
 const ROLE = { r: false, past: false, tick: true };
-try { Object.assign(ROLE, JSON.parse(localStorage.getItem('tesnim_role') || '{}')); } catch (e) { /* keep safe defaults */ }
+Object.assign(ROLE, store.get('tesnim_role') || {});
 const dayEditable = ds => { const t = fmt(today()); return ds === t ? ROLE.tick : (ds < t && ROLE.past && ROLE.tick); };
 // Bundle B2 delete lock: public/cloud.js puts "no-del" on <body> when the admin switched 🗑 off for this person.
 // Every delete path checks it (the buttons are hidden too, and the server refuses such a save anyway).
@@ -50,8 +52,8 @@ const lockToast = ds => toast(!ROLE.tick ? '🔒 ምልክት የማድረግ �
 // seed item the next time the app loads — this is what makes a Recycle Bin
 // deletion (and its Restore button, further down) actually mean something
 // for the built-in meals/reminders/pages, not just for ones you added.
-let removedSeedIds = new Set(JSON.parse(localStorage.getItem(LS_REMOVEDSEEDS) || '[]'));
-const saveRemovedSeeds = () => localStorage.setItem(LS_REMOVEDSEEDS, JSON.stringify([...removedSeedIds]));
+let removedSeedIds = new Set(store.get(LS_REMOVEDSEEDS) || []);
+const saveRemovedSeeds = () => store.set(LS_REMOVEDSEEDS, [...removedSeedIds]);
 const markSeedRemoved = (kind, item) => { if (item.seed && !item.customized) { removedSeedIds.add(kind + ':' + item.id); saveRemovedSeeds(); } };
 const unmarkSeedRemoved = (kind, id) => { if (removedSeedIds.delete(kind + ':' + id)) saveRemovedSeeds(); };
 
@@ -68,7 +70,7 @@ function descHtml(desc) {
 
 /* ============================================================
    PROGRAMS: everything you can tick is a "program" object, stored in
-   localStorage so add/edit/delete all work from the UI:
+   the store (src/store.js) so add/edit/delete all work from the UI:
    { id, name, desc, category, type:'simple'|'checklist',
      subItems:[{id,name}] (checklist only), schedule:'daily'|[1..7],
      seed, customized, createdAt }
@@ -89,7 +91,7 @@ function buildSeedPrograms() {
   return arr;
 }
 
-let programs = JSON.parse(localStorage.getItem(LS_PROGRAMS) || 'null');
+let programs = store.get(LS_PROGRAMS);
 const isFirstRun = !programs;
 if (!programs) programs = [];
 
@@ -115,7 +117,7 @@ function syncSeedPrograms() {
   // A seed item removed from data.js, and never customized, quietly disappears too.
   programs = programs.filter(p => !(p.seed && !p.customized && !seedIds.has(p.id)));
 }
-if (!ROLE.r) syncSeedPrograms(); // restricted users get exactly the list the server sends — never re-add built-ins
+if (!CLOUD) syncSeedPrograms(); // Bundle C: with a server, the list comes ONLY from the server (admin: ⚙ → 📦 to import data.js once)
 
 if (isFirstRun) {
   // Carry over permanent text edits from a much older single-file version, if any.
@@ -132,24 +134,24 @@ if (isFirstRun) {
   } catch (e) { /* ignore malformed old data */ }
 }
 programs.forEach(p => { if (p && !p.createdAt) p.createdAt = FIRST_RUN; });   // an activity with no start day starts on the day the app first ran (never "since the beginning of time")
-const savePrograms = () => { ghostCache = null; localStorage.setItem(LS_PROGRAMS, JSON.stringify(programs)); };
+const savePrograms = () => { ghostCache = null; store.set(LS_PROGRAMS, programs); };
 savePrograms();
 
-let logs = JSON.parse(localStorage.getItem(LS_LOG) || '{}');       // logs[ds][id]: see "RESULTS" below
-let dayOv = JSON.parse(localStorage.getItem(LS_DOV) || '{}');      // "today only" edit overrides: dayOv[ds][id] = {name,desc}
+let logs = store.getLog();                  // logs[ds][id]: see "RESULTS" below (kept by month in the store)
+let dayOv = store.get(LS_DOV) || {};        // "today only" edit overrides: dayOv[ds][id] = {name,desc}
 let sel = today(), editId = null, lastPct = null;
-const persist = () => { localStorage.setItem(LS_LOG, JSON.stringify(logs)); localStorage.setItem(LS_DOV, JSON.stringify(dayOv)); };
+const persist = () => { store.setLog(logs); store.set(LS_DOV, dayOv); };   // only the days that changed are written (and queued for the server)
 const toast = m => { const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2200); };
 
 /* ============================================================
    RECYCLE BIN (ቆሻሻ መጣያ): every deleted program/page is kept here
-   FOREVER (in localStorage), until you Restore it or delete it
+   FOREVER (in the store), until you Restore it or delete it
    forever from the dedicated Recycle Bin view (⚙ Settings → 🗑).
    This sits underneath the 5-second Undo bar below: Undo removes the
    entry here too, the moment you use it, so nothing is ever double-kept.
    trash[i] = { id, kind:'program'|'page', data:<full saved object>, deletedAt }
    ============================================================ */
-let trash = JSON.parse(localStorage.getItem(LS_TRASH) || '[]');
+let trash = store.get(LS_TRASH) || [];
 /* ---------- CATEGORIES (Bundle A part 4) ----------
    A category is the name written on its activities (it travels with them to every phone, so no server change is needed).
    Two spellings that differ only by spaces / capital letters ("ምግብ" and "ምግብ ") are ONE category: catKey() is what is compared.
@@ -201,7 +203,7 @@ function renameCat(key, to) {   // rename / merge / delete a whole category (to 
   if (n) { savePrograms(); saveTrash(); }
   return n;
 }
-const saveTrash = () => { ghostCache = null; localStorage.setItem(LS_TRASH, JSON.stringify(trash)); };
+const saveTrash = () => { ghostCache = null; store.set(LS_TRASH, trash); };
 function trashAdd(kind, data) {
   const entry = { id: uid(), kind, data, deletedAt: new Date().toISOString() };
   trash.unshift(entry); saveTrash(); updateTrashBadge();
@@ -252,7 +254,7 @@ function hasEntry(ds, p) {   // did the person really tick / mark / note this ac
   return typeof l === 'object' ? Object.keys(l).some(k => l[k]) : true;
 }
 function assignedIds() {   // the activity ids the server gave this restricted user
-  try { const m = JSON.parse(localStorage.getItem('tesnim_me') || 'null'); if (m && Array.isArray(m.programs)) return new Set(m.programs); } catch (e) { /* none */ }
+  const m = store.get('tesnim_me'); if (m && Array.isArray(m.programs)) return new Set(m.programs);
   return new Set();
 }
 function ghosts() {   // activities that are in the Recycle Bin: they still count on the days before the day they were deleted
@@ -545,7 +547,7 @@ const root = document.documentElement;
 const savedTh = localStorage.getItem(LS_TH); if (savedTh) root.dataset.theme = savedTh;
 $('themeBtn').onclick = () => {
   const dark = (root.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark';
-  root.dataset.theme = dark ? 'light' : 'dark'; localStorage.setItem(LS_TH, root.dataset.theme);
+  root.dataset.theme = dark ? 'light' : 'dark'; try { localStorage.setItem(LS_TH, root.dataset.theme); } catch (e) { /* not remembered */ }
 };
 
 /* ---------- card rendering ---------- */
@@ -906,7 +908,7 @@ $('aSave').onclick = () => {
    anything you add) — never tickable, but fully editable via ✎.
    Same seed/customized sync pattern as programs, see syncSeedPages.
    ============================================================ */
-let pages = JSON.parse(localStorage.getItem(LS_PAGES) || 'null');
+let pages = store.get(LS_PAGES);
 if (!pages) pages = [];
 function syncSeedPages() {
   const seedIds = new Set(SEED_PAGES.map(s => s.id));
@@ -918,9 +920,22 @@ function syncSeedPages() {
   });
   pages = pages.filter(p => !(p.seed && !p.customized && !seedIds.has(p.id)));
 }
-syncSeedPages();
-const savePages = () => localStorage.setItem(LS_PAGES, JSON.stringify(pages));
+if (!CLOUD) syncSeedPages();   // Bundle C: with a server, pages come only from the server
+const savePages = () => store.set(LS_PAGES, pages);
 savePages();
+
+/* ---------- Bundle C: the built-in meals, reminders and pages of src/data.js ----------
+   With a server they are no longer added on every phone at every start (that briefly put ALL built-ins on a member's phone
+   and kept re-adding them). The server's list is the truth. The admin imports data.js when wanted (⚙ → 📦): new items are
+   added, and items nobody has edited get data.js's latest text. A brand-new, empty server gets them automatically once. */
+function importSeeds() {
+  const before = programs.length + pages.length;
+  syncSeedPrograms(); syncSeedPages();
+  programs.forEach(p => { if (p && !p.createdAt) p.createdAt = FIRST_RUN; });
+  savePrograms(); savePages();
+  return Math.max(0, programs.length + pages.length - before);
+}
+if (CLOUD && document.body.classList.contains('is-admin') && !programs.length && !pages.length && !removedSeedIds.size) importSeeds();
 
 let openPageId = null, editPageId = null;
 function renderPages() {
@@ -1566,7 +1581,37 @@ startReminderWatch();
 // Registers public/sw.js - the offline-first worker (it saves the app on the
 // phone so it opens with no internet, but always asks the internet first).
 // Only in the built/deployed app, not while developing with `npm run dev`.
-if ('serviceWorker' in navigator && import.meta.env.PROD) navigator.serviceWorker.register('/sw.js').catch(() => {});
+// Bundle C: './sw.js' (not '/sw.js'), so it also works when the app is published inside a sub-folder.
+if ('serviceWorker' in navigator && import.meta.env.PROD) navigator.serviceWorker.register('./sw.js').catch(() => {});
+
+/* ---------- Bundle C: the admin's one-time import of data.js (⚙ Settings → 📦) ---------- */
+$('seedBtn').onclick = async () => {
+  $('settingsPanel').classList.remove('open'); $('settingsBtn').setAttribute('aria-expanded', 'false');
+  const i = await choiceDialog('ከ data.js አብሮ የተሰሩ ምግቦችን፣ ማሳሰቢያዎችንና ገፆችን ላስገባ? አዲሶቹ ይጨመራሉ፤ ማንም ያላስተካከላቸው ደግሞ ወደ data.js የቅርብ ጽሑፍ ይታደሳሉ። የሰረዟቸው አይመለሱም።', ['አዎ፣ አስገባ', 'አይ']);
+  if (i !== 0) return;
+  const n = importSeeds(); render(); renderPages();
+  toast(n ? `✓ ${n} አዲስ ተጨምሯል` : '✓ ተዘምኗል — አዲስ የለም');
+};
+
+/* ---------- Bundle C: someone else changed something (it arrives from src/sync.js) — redraw in place, no reload ---------- */
+function reloadFromStore() {
+  Object.assign(ROLE, store.get('tesnim_role') || {});
+  programs = store.get(LS_PROGRAMS) || []; programs.forEach(p => { if (p && !p.createdAt) p.createdAt = FIRST_RUN; });
+  pages = store.get(LS_PAGES) || []; trash = store.get(LS_TRASH) || [];
+  removedSeedIds = new Set(store.get(LS_REMOVEDSEEDS) || []);
+  logs = store.getLog(); dayOv = store.get(LS_DOV) || {};
+  const f = store.get(LS_FIRST); if (f) FIRST_RUN = f;
+  ghostCache = null;
+}
+store.on('remote', () => {
+  reloadFromStore();
+  if (openPageId && !pages.some(p => p.id === openPageId)) openPageId = null;
+  renderPages(); render(); updateTrashBadge();
+  if (trashView.classList.contains('open')) renderTrashView();
+  if (catView.classList.contains('open') && !catEdit) renderCatView();
+  if (detailView.classList.contains('open') && detailTab !== 'edit') renderDetail();
+});
+store.on('error', e => { if (!CLOUD && e.first) toast('⚠ በዚህ ስልክ ላይ ማስቀመጥ አልተሳካም — ቦታ ያስለቅቁ'); });
 
 renderPages();
 render();
