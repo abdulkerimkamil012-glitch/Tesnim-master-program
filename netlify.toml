@@ -3,9 +3,6 @@
 [build]
   command = "npm run build"
   publish = "dist"
-  # Saves Netlify build minutes: a commit that changes ONLY the backup job, README, docs or supabase/*.sql is not rebuilt
-  # (none of those are part of the website). Any other change builds as usual.
-  ignore = "[ -n \"$CACHED_COMMIT_REF\" ] && git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ':(exclude).github' ':(exclude)README.md' ':(exclude)docs' ':(exclude)supabase'"
 
 # SAFE ROAD to Supabase (fix for "Failed to fetch").
 # The app calls  /sb/rest/v1/rpc/...  on its own site; Netlify's server forwards it to Supabase.
