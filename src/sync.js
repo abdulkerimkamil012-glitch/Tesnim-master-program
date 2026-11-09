@@ -334,6 +334,8 @@ function injectCss() {
       '<div class="clp-who glass"><span class="clp-av">' + esc(initial()) + '</span><div><div class="clp-name">' + esc(me.username) + '</div><div class="clp-role">' + esc(roleLabel()) + '</div></div></div>' +
       '<div class="clp-card glass"><div class="clp-h">ማመሳሰል</div><div class="clp-sync" id="clp-sync"></div><div class="clp-err" id="clp-why" hidden></div><button type="button" class="clp-btn" id="clp-now">🔄 አሁን አመሳስል</button></div>' +
       '<div class="clp-card glass"><div class="clp-h">ማከማቻ (በዚህ ስልክ)</div><div id="clp-store"></div></div>' +
+      '<div class="clp-card glass"><div class="clp-h">ምትኬ (የራስዎ መረጃ)</div><p class="clp-p">የራስዎን ፕሮግራሞችና ውጤቶች በአንድ ፋይል ወደ የራስዎ Telegram ይላኩ። ከእርስዎ በቀር ማንም አያየውም።</p>' +
+      '<button type="button" class="clp-btn" id="clp-share">📤 ወደ Telegram ላክ</button><button type="button" class="clp-btn" id="clp-dl" style="margin-top:8px">💾 ወደ ስልክ አውርድ</button></div>' +
       '<div class="clp-card glass"><div class="clp-h">ገፅታ</div><button type="button" class="clp-btn" id="clp-theme">◐ ብሩህ / ጨለማ ቀይር</button></div>' +
       '<div class="clp-card glass"><div class="clp-h">በራስ-ሰር መውጣት</div><p class="clp-p">ለዚህ ያህል ጊዜ ምንም ካልነኩ ከመለያዎ በራስ-ሰር ይወጣል። ያልተላኩ ለውጦች ካሉ ወይም ኢንተርኔት ከሌለ ግን አይወጣም — ምንም አይጠፋም።</p>' +
       '<select class="clp-sel" id="clp-al" aria-label="በራስ-ሰር መውጣት">' + AL_OPTS.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === alMin() ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +

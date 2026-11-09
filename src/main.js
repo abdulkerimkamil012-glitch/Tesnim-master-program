@@ -1339,10 +1339,13 @@ $('trashClearAll').onclick = async () => {
 };
 
 /* ---------- backup / restore (now includes pages, trash too) ---------- */
-$('exportBtn').onclick = async () => {
+/* One place builds the backup file, so "download" and "send to Telegram" always give the very same file. */
+function buildBackup() {
   const data = { programs, logs, dayOv, pages, trash, removedSeedIds: [...removedSeedIds], exportedAt: new Date().toISOString() };
-  const json = JSON.stringify(data, null, 2);
-  const filename = 'tesnim-backup-' + fmt(new Date()) + '.json';
+  return { json: JSON.stringify(data, null, 2), filename: 'tesnim-backup-' + fmt(new Date()) + '.json' };
+}
+async function downloadBackup() {
+  const { json, filename } = buildBackup();
   // When running inside a Claude-hosted page, a plain <a download> link is
   // inert — use the platform's downloads capability instead. When running
   // as a normal deployed site (Netlify/Vercel/etc.), window.claude doesn't
@@ -1354,7 +1357,30 @@ $('exportBtn').onclick = async () => {
   const blob = new Blob([json], { type: 'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename;
   document.body.appendChild(a); a.click(); a.remove();
-};
+}
+/* 📤 Send to Telegram: opens the phone's own share sheet with the backup file; the person picks Telegram (best: "Saved Messages").
+   No secret key is involved and the file goes ONLY to the chat that person chooses - so everyone's data stays private. */
+async function shareBackup() {
+  const { json, filename } = buildBackup();
+  try {
+    const files = [new File([json], filename, { type: 'application/json' }),
+                   new File([json], filename + '.txt', { type: 'text/plain' })];   // some phones only share text files; the restore button accepts both
+    for (const f of files) {
+      if (navigator.canShare && navigator.canShare({ files: [f] })) {
+        await navigator.share({ files: [f], title: 'ተስኒም ምትኬ', text: 'ተስኒም ምትኬ · ' + fmt(new Date()) });
+        toast('✅ ምትኬው ተልኳል'); return;
+      }
+    }
+  } catch (e) { if (e && e.name === 'AbortError') return; }   // closing the share sheet is not an error
+  await downloadBackup();   // this browser cannot share files: save it on the phone, then send it from the Files app
+  toast('📁 ፋይሉ ወርዷል — ከፋይሎች ውስጥ ወደ Telegram ይላኩት');
+}
+$('exportBtn').onclick = downloadBackup;
+document.addEventListener('click', e => {   // the Profile page is drawn later by src/sync.js, so listen on the whole page
+  const b = e.target && e.target.closest && e.target.closest('#clp-share,#clp-dl');
+  if (!b) return;
+  if (b.id === 'clp-share') shareBackup(); else downloadBackup();
+});
 $('importBtn').onclick = () => { if (!canDel()) { noDelToast(); return; } $('importFile').click(); };   // an import replaces everything, so it is a kind of delete
 $('importFile').onchange = e => {
   const f = e.target.files[0]; if (!f) return;

@@ -2,10 +2,13 @@
 # DAILY BACKUP TO TELEGRAM  (+ keeps the free Supabase project awake)
 #
 # Every night GitHub (free) does three things:
-#   1. connects to the Tesnim database and copies EVERYTHING in it
-#      (tables, data, the app_* SQL functions, locks/permissions) into one .sql file;
-#   2. packs it small (and locks it with a password if you set BACKUP_PASSWORD);
-#   3. sends the file to YOUR Telegram through your own bot.
+#   1. connects to the Tesnim database and copies the "building plan" (tables, locks/RLS, the app_* SQL
+#      functions) PLUS the admin-written shared content (table app_shared) into one .sql file.
+#      PRIVACY: it does NOT copy anyone's results/ticks, personal lists, sessions or password data.
+#      Every person's own data is protected by their own backup (Profile page > "Send to Telegram").
+#   2. packs it small (and locks it with a password if you set BACKUP_PASSWORD - recommended);
+#   3. sends the file to YOUR Telegram through your own bot, with a short readable Amharic summary
+#      (numbers only - never names or contents).
 # Because step 1 talks to the database every day, Supabase never sees "7 days without activity",
 # so the project does not pause.
 # If anything fails you get a ⚠️ message on Telegram instead of a file.
@@ -50,7 +53,7 @@ jobs:
           [ -n "$TG_CHAT" ]  || missing="$missing TELEGRAM_CHAT_ID"
           if [ -n "$missing" ]; then echo "::error::Missing secret(s):$missing — see README → Automatic backups to Telegram"; exit 1; fi
 
-      - name: 2. Copy the whole database (this is also the daily "keep awake" visit)
+      - name: 2. Copy the building plan + shared content (this is also the daily "keep awake" visit)
         run: |
           set -euo pipefail
           echo "STAMP=$(TZ=Africa/Addis_Ababa date +%Y-%m-%d_%H%M)" >> "$GITHUB_ENV"
@@ -58,16 +61,38 @@ jobs:
           # postgres:17 tools can read Supabase Postgres 15 and 17. The address never appears in the log.
           docker run --rm -e DB_URL -v "$PWD/out:/out" postgres:17 sh -c '
             set -e
-            pg_dump "$DB_URL" --schema=public --no-owner --format=plain --file=/out/tesnim.sql
+            # 1) the building plan: tables, locks, SQL functions - NO rows at all
+            pg_dump "$DB_URL" --schema=public --schema-only --no-owner --file=/out/structure.sql
+            # 2) rows ONLY of the admin-written shared content. To add another harmless table, add it to this list.
+            #    NEVER add app_log, app_mine, app_dash_marks, app_sessions or app_users (private data / login secrets).
+            : > /out/shared.sql
+            for t in app_shared; do
+              if [ "$(psql "$DB_URL" -At -c "select to_regclass('"'"'public.$t'"'"') is not null")" = "t" ]; then
+                pg_dump "$DB_URL" --data-only --no-owner --table="public.$t" >> /out/shared.sql
+              fi
+            done
+            # 3) numbers only, for the Telegram summary
+            : > /out/counts.txt
+            for t in app_users app_shared app_log; do
+              n=$(psql "$DB_URL" -At -c "select count(*) from public.$t" 2>/dev/null || echo "?")
+              echo "$t=$n" >> /out/counts.txt
+            done
             psql "$DB_URL" -At -c "select count(*) from information_schema.tables where table_schema = '"'"'public'"'"' and table_type = '"'"'BASE TABLE'"'"'" > /out/tables.txt
             psql "$DB_URL" -At -c "select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = '"'"'public'"'"'" > /out/functions.txt
           '
+          cat out/structure.sql out/shared.sql > out/tesnim.sql
+          rm -f out/structure.sql out/shared.sql
           # a real backup has tables in it; an empty file must never look like success
           size=$(stat -c %s out/tesnim.sql)
           if [ "$size" -lt 2000 ] || ! grep -q 'CREATE TABLE' out/tesnim.sql; then echo "::error::The backup looks empty ($size bytes)"; exit 1; fi
+          # safety net: private tables must never be in this file
+          if grep -Eq '^COPY public\.(app_log|app_mine|app_dash_marks|app_sessions|app_users|app_login_fails)' out/tesnim.sql; then echo "::error::Private data found in the backup - stopped"; exit 1; fi
           echo "SQL_KB=$(( (size + 1023) / 1024 ))" >> "$GITHUB_ENV"
           echo "TABLES=$(cat out/tables.txt)" >> "$GITHUB_ENV"
           echo "FUNCS=$(cat out/functions.txt)" >> "$GITHUB_ENV"
+          echo "N_USERS=$(grep '^app_users=' out/counts.txt | cut -d= -f2)" >> "$GITHUB_ENV"
+          echo "N_SHARED=$(grep '^app_shared=' out/counts.txt | cut -d= -f2)" >> "$GITHUB_ENV"
+          echo "N_LOG=$(grep '^app_log=' out/counts.txt | cut -d= -f2)" >> "$GITHUB_ENV"
 
       - name: 3. Pack it (password-locked if BACKUP_PASSWORD is set)
         run: |
@@ -93,10 +118,12 @@ jobs:
         run: |
           set -euo pipefail
           caption="✅ ተስኒም ምትኬ · Tesnim backup
-          📅 $STAMP (Addis Ababa)
-          🗂 $TABLES tables · ⚙ $FUNCS functions
-          📦 $PACK_KB KB packed ($SQL_KB KB SQL) · $LOCK
-          💤 Supabase kept awake today"
+          📅 $STAMP (አዲስ አበባ)
+          🏗 መዋቅር፡ $TABLES tables · $FUNCS functions
+          📋 የጋራ ዝርዝር፡ $N_SHARED · 👥 ተጠቃሚዎች፡ $N_USERS · ✔ ምልክቶች፡ $N_LOG (ቁጥር ብቻ)
+          🔒 የማንም የግል ውጤት፣ የይለፍ ቃል ወይም ሴሽን በዚህ ፋይል ውስጥ የለም
+          📦 $PACK_KB KB ($SQL_KB KB SQL) · $LOCK
+          💤 ሰርቨሩ ዛሬ ነቅቷል (Supabase kept awake)"
           curl -sS --fail-with-body -o /tmp/tg.json \
             -F chat_id="$TG_CHAT" -F document=@"$FILE" -F caption="$caption" \
             "https://api.telegram.org/bot${TG_TOKEN}/sendDocument" \

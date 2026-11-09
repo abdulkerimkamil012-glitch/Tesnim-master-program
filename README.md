@@ -368,12 +368,19 @@ so a duplicate can't be created again.
 
 ---
 
-## 12b. Automatic backups to Telegram (+ keep-awake)
+## 12b. Backups to Telegram (two layers, private by design)
 
-`.github/workflows/backup-telegram.yml` runs **every night at 02:17 (Addis Ababa)** on GitHub, free:
-it copies the whole database (tables, data, the `app_*` functions, locks) → packs it → sends the file to **your Telegram**.
-That daily visit also stops the free Supabase project from pausing (pausing happens after 7 days without activity).
+**Layer 1 — nightly server backup (automatic).** `.github/workflows/backup-telegram.yml` runs **every night at 02:17 (Addis Ababa)** on GitHub, free.
+It sends a file to **your** Telegram with a short Amharic summary (numbers only). The file holds the **building plan** (tables, locks, the `app_*` SQL
+functions) and the **admin-written shared content** (`app_shared`). It **never** holds anyone's results/ticks, personal lists, sessions or passwords —
+this keeps the promise that nobody (not even the admin) can see another person's results. A built-in safety check stops the job if a private table ever
+appears in the file. That daily visit also stops the free Supabase project from pausing (pausing happens after 7 days without activity).
 If it fails, you get a ⚠️ message on Telegram instead.
+
+**Layer 2 — everyone's own data (a button in the app).** **Profile → ምትኬ → 📤 ወደ Telegram ላክ** opens the phone's share sheet with the person's own backup
+file; they pick Telegram (best: **Saved Messages**). No secret key is involved and the file goes only where that person sends it.
+**💾 ወደ ስልክ አውርድ** saves the same file on the phone. Restoring is the existing **⚙ → 📥 ምትኬ መልስ** (it needs the delete permission, as before; the picker also accepts the `.txt` copy).
+Tip for every user: tap the button once a week.
 
 **Setup once (about 10 minutes):**
 
@@ -388,16 +395,16 @@ If it fails, you get a ⚠️ message on Telegram instead.
    If the password has symbols like `@ # / ? %`, choose a new password with only letters and numbers.
 4. **GitHub secrets** — repo → **Settings → Secrets and variables → Actions → New repository secret**, four times:
    `SUPABASE_DB_URL` (step 3), `TELEGRAM_BOT_TOKEN` (step 1), `TELEGRAM_CHAT_ID` (step 2),
-   `BACKUP_PASSWORD` (optional: any password → the file becomes a locked `.7z`; open it on Android with **ZArchiver**).
+   `BACKUP_PASSWORD` (recommended: any password → the file becomes a locked `.7z`; open it on Android with **ZArchiver**).
 5. **Test** — repo → **Actions** → *Daily backup to Telegram* → **Run workflow**. Within ~2 minutes a file arrives in Telegram.
 
 **Keep it running:** GitHub switches off nightly jobs in a **public** repo after 60 days with no commits. Make the repo
 **private** (Settings → General → Danger Zone → Change visibility) — the job then never stops, and its logs are private too.
 Netlify keeps deploying a private repo normally. If the daily Telegram file ever stops coming, open Actions and press *Enable workflow*.
 
-**Restore from a backup:** unpack the file (`.gz` or `.7z`) to get `tesnim.sql`. Make a new Supabase project, then on a computer:
-`psql "<new project's Session pooler URI>" -f tesnim.sql` (or paste the file into SQL Editor if it is small). Then put the new
-project's URL and anon key in `src/config.js` **and** the new URL in `netlify.toml` (`[[redirects]]`).
+**Rebuild the server from a backup:** unpack the file (`.gz` or `.7z`) to get `tesnim.sql`. Make a new Supabase project, then on a computer:
+`psql "<new project's Session pooler URI>" -f tesnim.sql`. Then put the new project's URL and anon key in `src/config.js` **and** the new URL in
+`netlify.toml` (`[[redirects]]`). People's accounts and results are **not** in this file by design: each person restores their own file with 📥 ምትኬ መልስ.
 
 ---
 
