@@ -115,6 +115,7 @@ self.addEventListener('fetch', e => {
   if (FONT_HOSTS.includes(url.hostname)) { e.respondWith(fonts(url)); return; }
   if (url.origin !== self.location.origin || url.href.indexOf(BASE) !== 0) return;   // Supabase, or outside the app's folder: leave alone
   if (url.href === META) return;
+  if (url.pathname.indexOf('/sb/') === 0) return;                                   // the safe road to Supabase (netlify.toml): never cached
   if (url.href.indexOf(ASSETS) === 0) { e.respondWith(assetFirst(req, e)); return; }
   e.respondWith(networkFirst(req, e));
 });

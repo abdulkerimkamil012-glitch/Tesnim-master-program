@@ -1,0 +1,114 @@
+# ============================================================
+# DAILY BACKUP TO TELEGRAM  (+ keeps the free Supabase project awake)
+#
+# Every night GitHub (free) does three things:
+#   1. connects to the Tesnim database and copies EVERYTHING in it
+#      (tables, data, the app_* SQL functions, locks/permissions) into one .sql file;
+#   2. packs it small (and locks it with a password if you set BACKUP_PASSWORD);
+#   3. sends the file to YOUR Telegram through your own bot.
+# Because step 1 talks to the database every day, Supabase never sees "7 days without activity",
+# so the project does not pause.
+# If anything fails you get a ⚠️ message on Telegram instead of a file.
+#
+# Setup (once): README.md → "Automatic backups to Telegram". Four secrets in
+# GitHub → Settings → Secrets and variables → Actions:
+#   SUPABASE_DB_URL     the "Session pooler" connection string (with your database password in it)
+#   TELEGRAM_BOT_TOKEN  from @BotFather
+#   TELEGRAM_CHAT_ID    your own Telegram id (a number)
+#   BACKUP_PASSWORD     optional - if set, the file is a password-locked .7z
+# Run it now: GitHub → Actions → "Daily backup to Telegram" → Run workflow.
+# ============================================================
+name: Daily backup to Telegram
+
+on:
+  schedule:
+    - cron: '17 23 * * *'   # every day at 02:17 Addis Ababa time (= 23:17 UTC)
+  workflow_dispatch: {}      # the "Run workflow" button, for a backup right now
+
+permissions:
+  contents: read             # this job only reads; it never changes the repo
+
+concurrency:
+  group: tesnim-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+      ZIP_PASS: ${{ secrets.BACKUP_PASSWORD }}
+    steps:
+      - name: 1. Check the secrets are filled in
+        run: |
+          missing=""
+          [ -n "$DB_URL" ]   || missing="$missing SUPABASE_DB_URL"
+          [ -n "$TG_TOKEN" ] || missing="$missing TELEGRAM_BOT_TOKEN"
+          [ -n "$TG_CHAT" ]  || missing="$missing TELEGRAM_CHAT_ID"
+          if [ -n "$missing" ]; then echo "::error::Missing secret(s):$missing — see README → Automatic backups to Telegram"; exit 1; fi
+
+      - name: 2. Copy the whole database (this is also the daily "keep awake" visit)
+        run: |
+          set -euo pipefail
+          echo "STAMP=$(TZ=Africa/Addis_Ababa date +%Y-%m-%d_%H%M)" >> "$GITHUB_ENV"
+          mkdir -p out
+          # postgres:17 tools can read Supabase Postgres 15 and 17. The address never appears in the log.
+          docker run --rm -e DB_URL -v "$PWD/out:/out" postgres:17 sh -c '
+            set -e
+            pg_dump "$DB_URL" --schema=public --no-owner --format=plain --file=/out/tesnim.sql
+            psql "$DB_URL" -At -c "select count(*) from information_schema.tables where table_schema = '"'"'public'"'"' and table_type = '"'"'BASE TABLE'"'"'" > /out/tables.txt
+            psql "$DB_URL" -At -c "select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = '"'"'public'"'"'" > /out/functions.txt
+          '
+          # a real backup has tables in it; an empty file must never look like success
+          size=$(stat -c %s out/tesnim.sql)
+          if [ "$size" -lt 2000 ] || ! grep -q 'CREATE TABLE' out/tesnim.sql; then echo "::error::The backup looks empty ($size bytes)"; exit 1; fi
+          echo "SQL_KB=$(( (size + 1023) / 1024 ))" >> "$GITHUB_ENV"
+          echo "TABLES=$(cat out/tables.txt)" >> "$GITHUB_ENV"
+          echo "FUNCS=$(cat out/functions.txt)" >> "$GITHUB_ENV"
+
+      - name: 3. Pack it (password-locked if BACKUP_PASSWORD is set)
+        run: |
+          set -euo pipefail
+          cd out
+          name="tesnim-backup-$STAMP"
+          if [ -n "$ZIP_PASS" ]; then
+            command -v 7z >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq p7zip-full; }
+            7z a -t7z -mx=9 -mhe=on -p"$ZIP_PASS" "$name.7z" tesnim.sql >/dev/null
+            file="$name.7z"; lock="🔒 password-locked (.7z)"
+          else
+            gzip -9 -c tesnim.sql > "$name.sql.gz"
+            file="$name.sql.gz"; lock="no password (.gz)"
+          fi
+          bytes=$(stat -c %s "$file")
+          if [ "$bytes" -gt 49000000 ]; then echo "::error::Backup is $((bytes/1048576)) MB — bigger than Telegram's 50 MB bot limit"; exit 1; fi
+          echo "FILE=out/$file" >> "$GITHUB_ENV"
+          echo "LOCK=$lock" >> "$GITHUB_ENV"
+          echo "PACK_KB=$(( (bytes + 1023) / 1024 ))" >> "$GITHUB_ENV"
+          rm -f tesnim.sql   # never leave the plain copy lying around
+
+      - name: 4. Send it to my Telegram
+        run: |
+          set -euo pipefail
+          caption="✅ ተስኒም ምትኬ · Tesnim backup
+          📅 $STAMP (Addis Ababa)
+          🗂 $TABLES tables · ⚙ $FUNCS functions
+          📦 $PACK_KB KB packed ($SQL_KB KB SQL) · $LOCK
+          💤 Supabase kept awake today"
+          curl -sS --fail-with-body -o /tmp/tg.json \
+            -F chat_id="$TG_CHAT" -F document=@"$FILE" -F caption="$caption" \
+            "https://api.telegram.org/bot${TG_TOKEN}/sendDocument" \
+            || { echo "::error::Telegram refused the file:"; cat /tmp/tg.json; exit 1; }
+          echo "Sent to Telegram ✔"
+
+      - name: If anything failed, warn me on Telegram
+        if: failure()
+        run: |
+          [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT" ] || exit 0
+          text="⚠️ ተስኒም ምትኬ አልተሳካም · Tesnim backup FAILED ($(TZ=Africa/Addis_Ababa date '+%Y-%m-%d %H:%M'))
+          Most likely: the Supabase project is paused or restarting → open supabase.com/dashboard → Tesnim-program → Restore, then press 'Run workflow' again.
+          Details: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          curl -sS -o /dev/null --data-urlencode "chat_id=$TG_CHAT" --data-urlencode "text=$text" \
+            "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" || true

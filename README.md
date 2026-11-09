@@ -368,11 +368,46 @@ so a duplicate can't be created again.
 
 ---
 
+## 12b. Automatic backups to Telegram (+ keep-awake)
+
+`.github/workflows/backup-telegram.yml` runs **every night at 02:17 (Addis Ababa)** on GitHub, free:
+it copies the whole database (tables, data, the `app_*` functions, locks) → packs it → sends the file to **your Telegram**.
+That daily visit also stops the free Supabase project from pausing (pausing happens after 7 days without activity).
+If it fails, you get a ⚠️ message on Telegram instead.
+
+**Setup once (about 10 minutes):**
+
+1. **Telegram bot** — in Telegram open **@BotFather** → `/newbot` → give a name and a username ending in `bot` → copy the **token** (looks like `123456:ABC…`).
+   Open your new bot and press **Start** (a bot can only write to you after you start it).
+2. **Your chat id** — open **@userinfobot** → Start → copy the **Id** number.
+3. **Database address** — supabase.com → **Tesnim-program** → **Connect** (top) → **Session pooler** → copy the URI
+   (`postgresql://postgres.xdjfiiuqiecntyuarvkq:[YOUR-PASSWORD]@aws-…pooler.supabase.com:5432/postgres`).
+   Put your **database password** in place of `[YOUR-PASSWORD]` (no brackets). Forgot it? Project Settings → Database →
+   **Reset database password** — safe: the app itself uses the public key, not this password.
+   Use **Session pooler**, not "Direct connection" (direct is IPv6-only; GitHub cannot reach it).
+   If the password has symbols like `@ # / ? %`, choose a new password with only letters and numbers.
+4. **GitHub secrets** — repo → **Settings → Secrets and variables → Actions → New repository secret**, four times:
+   `SUPABASE_DB_URL` (step 3), `TELEGRAM_BOT_TOKEN` (step 1), `TELEGRAM_CHAT_ID` (step 2),
+   `BACKUP_PASSWORD` (optional: any password → the file becomes a locked `.7z`; open it on Android with **ZArchiver**).
+5. **Test** — repo → **Actions** → *Daily backup to Telegram* → **Run workflow**. Within ~2 minutes a file arrives in Telegram.
+
+**Keep it running:** GitHub switches off nightly jobs in a **public** repo after 60 days with no commits. Make the repo
+**private** (Settings → General → Danger Zone → Change visibility) — the job then never stops, and its logs are private too.
+Netlify keeps deploying a private repo normally. If the daily Telegram file ever stops coming, open Actions and press *Enable workflow*.
+
+**Restore from a backup:** unpack the file (`.gz` or `.7z`) to get `tesnim.sql`. Make a new Supabase project, then on a computer:
+`psql "<new project's Session pooler URI>" -f tesnim.sql` (or paste the file into SQL Editor if it is small). Then put the new
+project's URL and anon key in `src/config.js` **and** the new URL in `netlify.toml` (`[[redirects]]`).
+
+---
+
 ## 13. Troubleshooting
 
 | Problem | What to check |
 |---|---|
 | Login says "connection failed" | Is the phone online? Are `SB_URL` / `SB_KEY` in `src/config.js` correct? |
+| "Failed to fetch" / "🔌 ሰርቨሩ አልተገኘም" while Wi-Fi works | The phone has internet but cannot reach Supabase. 1) supabase.com → your project: if it says **Paused**, press **Restore** (free projects pause after ~7 days unused). 2) The app now goes through the site's own `/sb/` address (`netlify.toml` → `[[redirects]]`), so phone-network blocks of `*.supabase.co` no longer matter. The `to =` address there must equal `SB_URL`. |
+| "🛠 ሰርቨሩ ለጊዜው አይሰራም (HTTP 5xx)" | Supabase answered with an error page: the project is paused, restarting or deleted. Restore it in the Supabase dashboard. |
 | "ስሙ ወይም የይለፍ ቃሉ ትክክል አይደለም" | Wrong user name or password. |
 | "ኢንተርኔት ያስፈልጋል" on a new phone | The very first login needs internet. Sign in once, wait for 🟢, then it opens offline. |
 | "⚠ … ማስቀመጥ አልተሳካም" | The phone could not save (storage full). Profile → Storage shows the error; free some space. Nothing is lost while the app stays open; it retries every 15 s. |

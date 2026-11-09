@@ -1454,7 +1454,8 @@ async function loadDash(force) {
     if (seq !== dashSeq) return;
     const m = String(e && e.message || '');
     if (hit && !/auth|range/.test(m)) { drawDash(hit.data, r, { at: hit.at, off: true }); return; }
-    $('dashBody').innerHTML = `<div class="dash-empty">${/auth/.test(m) ? '🔑 እባክዎ እንደገና ይግቡ።' : /range/.test(m) ? 'ይህ ቀን ሊታይ አይችልም።' : '📴 ኢንተርኔት የለም፣ ለዚህ ጊዜ የተቀመጠ ቅጂም የለም።<br>ኢንተርኔት ሲገኝ ↻ ይንኩ።'}<small>${esc(m)}</small></div>`;
+    const plain = api.why ? api.why(e) : m;   // never show the raw English "Failed to fetch"
+    $('dashBody').innerHTML = `<div class="dash-empty">${/auth/.test(m) ? '🔑 እባክዎ እንደገና ይግቡ።' : /range/.test(m) ? 'ይህ ቀን ሊታይ አይችልም።' : 'ለዚህ ጊዜ የተቀመጠ ቅጂ የለም።<br>' + esc(plain) + '<br>↻ ይንኩ።'}</div>`;
   }
 }
 function drawDash(d, r, meta) {
@@ -1534,7 +1535,8 @@ async function dashRestart(clear) {
     toast('ተቀምጧል።'); loadDash(true);
   } catch (e) {
     const m = String(e && e.message || '');
-    toast(/range/.test(m) ? 'ቀኑ ትክክል አይደለም' : /denied/.test(m) ? 'ፈቃድ የለዎትም' : 'ግንኙነት አልተሳካም — እንደገና ይሞክሩ');
+    const api = cloudApi();
+    toast(/range/.test(m) ? 'ቀኑ ትክክል አይደለም' : /denied/.test(m) ? 'ፈቃድ የለዎትም' : (api && api.why ? api.why(e) : 'ግንኙነት አልተሳካም — እንደገና ይሞክሩ'));
   }
 }
 function openDash() {

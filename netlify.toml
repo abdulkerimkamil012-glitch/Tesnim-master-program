@@ -3,3 +3,26 @@
 [build]
   command = "npm run build"
   publish = "dist"
+  # Saves Netlify build minutes: a commit that changes ONLY the backup job, README, docs or supabase/*.sql is not rebuilt
+  # (none of those are part of the website). Any other change builds as usual.
+  ignore = "[ -n \"$CACHED_COMMIT_REF\" ] && git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ':(exclude).github' ':(exclude)README.md' ':(exclude)docs' ':(exclude)supabase'"
+
+# SAFE ROAD to Supabase (fix for "Failed to fetch").
+# The app calls  /sb/rest/v1/rpc/...  on its own site; Netlify's server forwards it to Supabase.
+# The phone never has to reach *.supabase.co itself, and there is no cross-site (CORS) step.
+# MUST match SB_URL in src/config.js. If you move to a new Supabase project, change BOTH.
+[[redirects]]
+  from = "/sb/*"
+  to = "https://xdjfiiuqiecntyuarvkq.supabase.co/:splat"
+  status = 200
+  force = true
+
+# The page itself must never be kept stale by the browser (the service worker already asks the network first).
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"

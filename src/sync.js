@@ -12,7 +12,7 @@
    The Supabase address and key are in src/config.js.
    ============================================================ */
 import { store } from './store.js';
-import { SB_URL, SB_KEY } from './config.js';
+import { SB_URL, SB_KEY, SB_PROXY } from './config.js';
 
 export const CLOUD = SB_URL.indexOf('YOUR-') !== 0;
 const SH = ['tesnim_programs', 'tesnim_pages', 'tesnim_trash', 'tesnim_removed_seeds'];   // shared by everyone
@@ -27,17 +27,70 @@ const $ = function (id) { return document.getElementById(id); };
 const esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
 const msg = e => String((e && e.message) || e || '');
 
-function api(fn, args, ms) {   // ms = give up after this long (a stuck connection must never freeze the app)
+// ---------- the road to the server (fix for "Failed to fetch") ----------
+// Two roads to the SAME Supabase: VIA = this site's own /sb/ address (Netlify forwards it, see netlify.toml),
+// DIRECT = SB_URL. The road that worked last is tried first; if a road cannot even be reached, the other one is tried.
+const DIRECT = SB_URL.replace(/\/+$/, '');
+const VIA = (function () {
+  try {
+    if (!SB_PROXY || !import.meta.env.PROD || /^(localhost|127\.|\[::1\])/.test(location.hostname)) return null;   // `npm run dev` has no /sb/ rule
+    return new URL(SB_PROXY, location.origin).href.replace(/\/+$/, '');
+  } catch (e) { return null; }
+})();
+const ROAD_KEY = 'tesnim_road';
+let road = null; try { road = ls.getItem(ROAD_KEY); } catch (e) { road = null; }
+let lastErr = '', lastErrAt = 0;
+function roads() { const all = VIA ? [VIA, DIRECT] : [DIRECT]; return road === 'direct' ? all.slice().reverse() : all; }
+function useRoad(base) { const r = base === DIRECT ? 'direct' : 'via'; if (r !== road) { road = r; try { ls.setItem(ROAD_KEY, r); } catch (e) { /* not remembered */ } } }
+// "unreachable" = no answer at all (DNS, blocked, no internet) or our /sb/ rule is not deployed yet -> try the other road
+const unreachable = e => !!e && (e.road === true || e.name === 'TypeError' || /failed to fetch|networkerror|load failed|network request failed/i.test(msg(e)));
+
+// Any error -> a short Amharic sentence a person can act on (never the raw English "Failed to fetch").
+export function why(e) {
+  const m = msg(e), s = e && e.status;
+  if (e && e.name === 'AbortError') return '⏳ ሰርቨሩ ለመመለስ በጣም ዘገየ። ኢንተርኔቱ ደካማ ነው — ትንሽ ቆይተው እንደገና ይሞክሩ።';
+  if (navigator.onLine === false) return '📴 ኢንተርኔት የለም። ዋይፋይ ወይም ዳታ ያብሩ፣ ከዚያ እንደገና ይሞክሩ።';
+  if (unreachable(e)) return '🔌 ሰርቨሩ (Supabase) ሊገኝ አልቻለም። ኢንተርኔትዎ ቢሰራም ይህ ሊሆን ይችላል፤ የSupabase ፕሮጀክቱ ቆሞ (paused) እንደሆነ ያረጋግጡ፣ ወይም ትንሽ ቆይተው ይሞክሩ።';
+  if (s === 401 || s === 403 || /invalid api key|jwt|apikey/i.test(m)) return '🔑 የSupabase ቁልፉ (SB_KEY) ተቀባይነት አላገኘም። src/config.js ውስጥ ያለውን ቁልፍ ያረጋግጡ።';
+  if (s >= 500 || s === 0) return '🛠 ሰርቨሩ ለጊዜው አይሰራም (HTTP ' + s + ')። የSupabase ፕሮጀክቱ ቆሞ (paused) ሊሆን ይችላል — supabase.com ላይ «Restore» ይጫኑ።';
+  if (/denied/.test(m)) return '⛔ ፈቃድ የለዎትም።';
+  if (/auth/.test(m)) return '🔑 እባክዎ እንደገና ይግቡ።';
+  return '⚠ ' + (m || 'ያልታወቀ ስህተት');
+}
+function remember(e) { lastErr = why(e); lastErrAt = Date.now(); }
+
+function call(base, fn, args, ms) {   // ms = give up after this long (a stuck connection must never freeze the app)
   const ctl = window.AbortController ? new AbortController() : null, t = ctl ? setTimeout(function () { ctl.abort(); }, ms || 15000) : null;
-  return fetch(SB_URL + '/rest/v1/rpc/' + fn, { method: 'POST', headers: { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(args || {}), signal: ctl ? ctl.signal : undefined })
+  return fetch(base + '/rest/v1/rpc/' + fn, { method: 'POST', headers: { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(args || {}), signal: ctl ? ctl.signal : undefined, cache: 'no-store' })
     .then(function (r) {
       return r.text().then(function (tx) {
         let j = null; try { j = tx ? JSON.parse(tx) : null; } catch (e) { j = null; }
-        if (!r.ok) { const er = new Error((j && (j.message || j.code)) || ('HTTP ' + r.status)); er.status = r.status; er.code = j && j.code; throw er; }
+        if (!r.ok) {
+          const er = new Error((j && (j.message || j.code)) || ('HTTP ' + r.status)); er.status = r.status; er.code = j && j.code;
+          // our own /sb/ address answered with a web page instead of Supabase: the netlify.toml rule is not live yet
+          if (base === VIA && j === null && r.status === 404) er.road = true;
+          if (j === null && r.status >= 500) er.retry = true;   // a gateway / paused-project page, not a real answer: the other road may still work
+          throw er;
+        }
         return j;
       });
     })
     .then(function (j) { clearTimeout(t); return j; }, function (e) { clearTimeout(t); throw e; });
+}
+function api(fn, args, ms) {
+  const list = roads();
+  let i = 0, best = null;
+  const next = function () {
+    const base = list[i];
+    return call(base, fn, args, ms).then(function (j) { useRoad(base); lastErr = ''; return j; }, function (e) {
+      if (e.status >= 500 && !e.road) best = best || e;                       // "server says paused/down" explains more than "no answer"
+      if ((unreachable(e) || e.retry) && i < list.length - 1) { i++; return next(); }   // this road is closed: take the other one
+      const out = (unreachable(e) || e.retry) && best ? best : e;
+      if (!out.status || out.status >= 500) remember(out);                    // keep connection trouble for the profile page
+      throw out;
+    });
+  };
+  return next();
 }
 const missingFn = e => e && (e.status === 404 || e.code === 'PGRST202' || /Could not find the function/i.test(msg(e)));
 function permOn(k) { return !!me.is_admin || (k === 'tick' ? (me.perms || {}).tick !== false : !!(me.perms || {})[k]); }
@@ -65,9 +118,16 @@ store.on('error', function (e) { if (e.first) note('⚠ በዚህ ስልክ ላ�
 store.on('saved', function () { paintStorage(); });
 
 function pend() { return store.pendingCount() > 0 || !!dirty.m || (canShared() && !!dirty.s); }   // anything not yet sent to the cloud?
-function syncInfo() { const n = store.pendingCount(), off = !net || navigator.onLine === false; return { n: n, off: off, st: off ? 'off' : (n ? 'pend' : 'ok') }; }
+function syncInfo() {
+  const n = store.pendingCount(), noNet = navigator.onLine === false, off = !net || noNet;
+  return { n: n, off: off, srv: off && !noNet, st: off ? 'off' : (n ? 'pend' : 'ok') };   // srv = the phone HAS internet, only the server cannot be reached
+}
 function hhmm(t) { const d = new Date(t); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
-function stText(i) { return i.off ? '📴 ከመስመር ውጭ' + (i.n ? ' · ⏳ ' + i.n + ' ያልተላኩ ለውጦች' : '') : (i.n ? '⏳ ' + i.n + ' ለውጥ ለመላክ ይጠብቃል' : '✅ ተመሳስሏል'); }
+function stText(i) {
+  const wait = i.n ? ' · ⏳ ' + i.n + ' ያልተላኩ ለውጦች' : '';
+  if (i.off) return (i.srv ? '🔌 ሰርቨሩ አልተገኘም' : '📴 ከመስመር ውጭ') + wait;
+  return i.n ? '⏳ ' + i.n + ' ለውጥ ለመላክ ይጠብቃል' : '✅ ተመሳስሏል';
+}
 function status() {   // the small coloured dot on the header avatar: green = synced, amber + number = waiting to send, grey = offline
   if (!me) return;
   const i = syncInfo(), a = $('cl-av');
@@ -77,6 +137,8 @@ function status() {   // the small coloured dot on the header avatar: green = sy
   }
   const p = $('clp-sync');   // same info on the profile page, if it is open
   if (p) p.innerHTML = '<i class="clp-dot" data-st="' + i.st + '"></i><span>' + stText(i) + (lastOk ? '<small>ለመጨረሻ ጊዜ የተመሳሰለው፡ ' + hhmm(lastOk) + '</small>' : '') + '</span>';
+  const pe = $('clp-why');   // why the last try failed, in plain words (shown only while it is still failing)
+  if (pe) { pe.hidden = !(i.off && lastErr); pe.textContent = lastErr ? lastErr + ' (' + hhmm(lastErrAt) + ')' : ''; }
   paintStorage();
 }
 function later(ms) { clearTimeout(timer); timer = setTimeout(push, ms); status(); }
@@ -270,7 +332,7 @@ function injectCss() {
     var pg = el('cl-prof', '<div class="detail-head"><button type="button" class="arrow" id="clp-back" aria-label="ተመለስ">‹</button><div class="detail-title">መገለጫ</div></div>' +
       '<div class="detail-body">' +
       '<div class="clp-who glass"><span class="clp-av">' + esc(initial()) + '</span><div><div class="clp-name">' + esc(me.username) + '</div><div class="clp-role">' + esc(roleLabel()) + '</div></div></div>' +
-      '<div class="clp-card glass"><div class="clp-h">ማመሳሰል</div><div class="clp-sync" id="clp-sync"></div><button type="button" class="clp-btn" id="clp-now">🔄 አሁን አመሳስል</button></div>' +
+      '<div class="clp-card glass"><div class="clp-h">ማመሳሰል</div><div class="clp-sync" id="clp-sync"></div><div class="clp-err" id="clp-why" hidden></div><button type="button" class="clp-btn" id="clp-now">🔄 አሁን አመሳስል</button></div>' +
       '<div class="clp-card glass"><div class="clp-h">ማከማቻ (በዚህ ስልክ)</div><div id="clp-store"></div></div>' +
       '<div class="clp-card glass"><div class="clp-h">ገፅታ</div><button type="button" class="clp-btn" id="clp-theme">◐ ብሩህ / ጨለማ ቀይር</button></div>' +
       '<div class="clp-card glass"><div class="clp-h">በራስ-ሰር መውጣት</div><p class="clp-p">ለዚህ ያህል ጊዜ ምንም ካልነኩ ከመለያዎ በራስ-ሰር ይወጣል። ያልተላኩ ለውጦች ካሉ ወይም ኢንተርኔት ከሌለ ግን አይወጣም — ምንም አይጠፋም።</p>' +
@@ -332,7 +394,7 @@ function injectCss() {
         if (/slow/.test(m)) return wait(x.wait || 30);
         $('cl-err').textContent = /bad/.test(m)
           ? 'ስሙ ወይም የይለፍ ቃሉ ትክክል አይደለም' + (x.left === 0 ? ' · ብዙ ሙከራዎች ስለተደረጉ ትንሽ ቆይተው ይሞክሩ' : (x.left > 0 && x.left <= 2 ? ' · የቀሩ ሙከራዎች፡ ' + x.left : ''))
-          : 'ግንኙነት አልተሳካም — ቅንብሩን ያረጋግጡ';
+          : why(x);
       });
     };
   }
@@ -375,14 +437,21 @@ function injectCss() {
     function close() { box.remove(); }
     var users = [];
     function list() {
-      api('admin_list', { p_tok: tok }).then(function (us) {
-        users = us;
+      box.innerHTML = '<div class="in"><h2>👑 ተጠቃሚዎች</h2><p>⏳ በመጫን ላይ…</p></div>';
+      api('admin_list', { p_tok: tok }, 20000).then(function (us) {
+        users = Array.isArray(us) ? us : []; us = users; net = true; lastOk = Date.now(); status();
         box.innerHTML = '<div class="in"><h2>👑 ተጠቃሚዎች</h2>' + us.map(function (u) { return '<div class="cl-row"><span><b>' + esc(u.username) + '</b>' + (u.is_admin ? ' 👑' : '') + (u.perms && u.perms.role ? ' <small>' + esc(u.perms.role) + '</small>' : '') + '</span><span><button class="cl-btn g" data-e="' + u.id + '">አርትዕ</button> <button class="cl-btn r" data-d="' + u.id + '">🗑</button></span></div>'; }).join('') +
           '<p><button class="cl-btn" id="cl-new">＋ አዲስ ተጠቃሚ</button> <button class="cl-btn g" id="cl-x">ዝጋ</button></p></div>';
         $('cl-x').onclick = close; $('cl-new').onclick = function () { form(null); };
         box.querySelectorAll('[data-e]').forEach(function (b) { b.onclick = function () { form(us.filter(function (u) { return u.id === b.dataset.e; })[0]); }; });
-        box.querySelectorAll('[data-d]').forEach(function (b) { b.onclick = function () { if (confirm('ይህ ተጠቃሚ ይሰረዝ?')) api('admin_delete', { p_tok: tok, p_id: b.dataset.d }).then(list).catch(function (e) { alert(e.message); }); }; });
-      }).catch(function (e) { box.innerHTML = '<div class="in"><p>' + esc(e.message) + '</p><button class="cl-btn g" id="cl-x">ዝጋ</button></div>'; $('cl-x').onclick = close; });
+        box.querySelectorAll('[data-d]').forEach(function (b) { b.onclick = function () { if (confirm('ይህ ተጠቃሚ ይሰረዝ?')) api('admin_delete', { p_tok: tok, p_id: b.dataset.d }).then(list).catch(function (e) { if (/auth/.test(msg(e))) return relogin(); alert(why(e)); }); }; });
+      }).catch(function (e) {   // was: the raw English "Failed to fetch" with only a close button
+        if (/auth/.test(msg(e))) return relogin();
+        if (unreachable(e)) { net = false; status(); }
+        box.innerHTML = '<div class="in"><h2>👑 ተጠቃሚዎች</h2><p style="line-height:1.6">' + esc(why(e)) + '</p>' +
+          '<p><button class="cl-btn" id="cl-retry">🔄 እንደገና ሞክር</button> <button class="cl-btn g" id="cl-x">ዝጋ</button></p></div>';
+        $('cl-retry').onclick = list; $('cl-x').onclick = close;
+      });
     }
     function form(u) {
       u = u || { username: '', is_admin: false, perms: {}, programs: [] };
@@ -432,7 +501,7 @@ function injectCss() {
         var perms = {}; box.querySelectorAll('[data-p]').forEach(function (c) { perms[c.dataset.p] = c.checked; }); perms.role = $('f-role').value;
         var ids = []; box.querySelectorAll('[data-g]').forEach(function (c) { if (c.checked) ids.push(c.dataset.g); });
         api('admin_save', { p_tok: tok, p_id: u.id || null, p_username: $('f-u').value, p_pass: $('f-p').value, p_admin: $('f-a').checked, p_perms: perms, p_programs: $('f-all').checked ? 'all' : ids })
-          .then(list).catch(function (e) { $('cl-err').textContent = /duplicate/.test(e.message) ? 'ይህ ስም ተይዟል' : /overlap/.test(e.message) ? 'ይህ ፕሮግራም አስቀድሞ የሌላ ተጠቃሚ ነው: ' + e.message.split(':').pop() : /own admin/.test(e.message) ? 'የራስዎን አስተዳዳሪነት ማስወገድ አይቻልም' : e.message; });
+          .then(list).catch(function (e) { $('cl-err').textContent = /duplicate/.test(e.message) ? 'ይህ ስም ተይዟል' : /overlap/.test(e.message) ? 'ይህ ፕሮግራም አስቀድሞ የሌላ ተጠቃሚ ነው: ' + e.message.split(':').pop() : /own admin/.test(e.message) ? 'የራስዎን አስተዳዳሪነት ማስወገድ አይቻልም' : why(e); });
       };
     }
     list();
@@ -451,7 +520,8 @@ export async function startCloud() {   // true = open the app now, false = a log
   window.TesnimCloud = {   // what src/main.js may ask the server for (the Dashboard page, Bundle B2)
     dash: function (a) { const o = { p_tok: tok }; for (const k in (a || {})) o[k] = a[k]; return api('app_dash', o, 20000); },
     restart: function (start, clear) { return api('app_dash_restart', { p_tok: tok, p_start: start || null, p_clear: !!clear }); },
-    who: function () { return me ? { id: me.id || me.username, admin: !!me.is_admin, name: me.username } : null; }
+    who: function () { return me ? { id: me.id || me.username, admin: !!me.is_admin, name: me.username } : null; },
+    why: why   // turns a connection error into a short Amharic sentence
   };
   el('cl-veil');
   if (!tok) { login(); return false; }
