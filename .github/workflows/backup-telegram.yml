@@ -45,15 +45,17 @@ jobs:
       TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
       ZIP_PASS: ${{ secrets.BACKUP_PASSWORD }}
     steps:
-      - name: 1. Check the secrets are filled in
+      - name: 1. Check the secrets are filled in (if not, do nothing and stay quiet)
         run: |
-          missing=""
-          [ -n "$DB_URL" ]   || missing="$missing SUPABASE_DB_URL"
-          [ -n "$TG_TOKEN" ] || missing="$missing TELEGRAM_BOT_TOKEN"
-          [ -n "$TG_CHAT" ]  || missing="$missing TELEGRAM_CHAT_ID"
-          if [ -n "$missing" ]; then echo "::error::Missing secret(s):$missing — see README → Automatic backups to Telegram"; exit 1; fi
+          if [ -n "$DB_URL" ] && [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT" ]; then
+            echo "READY=true" >> "$GITHUB_ENV"
+          else
+            echo "Backup is not set up yet (secrets missing) - nothing to do. See README > Backups to Telegram."
+            echo "READY=false" >> "$GITHUB_ENV"
+          fi
 
       - name: 2. Copy the building plan + shared content (this is also the daily "keep awake" visit)
+        if: env.READY == 'true'
         run: |
           set -euo pipefail
           echo "STAMP=$(TZ=Africa/Addis_Ababa date +%Y-%m-%d_%H%M)" >> "$GITHUB_ENV"
@@ -95,6 +97,7 @@ jobs:
           echo "N_LOG=$(grep '^app_log=' out/counts.txt | cut -d= -f2)" >> "$GITHUB_ENV"
 
       - name: 3. Pack it (password-locked if BACKUP_PASSWORD is set)
+        if: env.READY == 'true'
         run: |
           set -euo pipefail
           cd out
@@ -115,6 +118,7 @@ jobs:
           rm -f tesnim.sql   # never leave the plain copy lying around
 
       - name: 4. Send it to my Telegram
+        if: env.READY == 'true'
         run: |
           set -euo pipefail
           caption="✅ ተስኒም ምትኬ · Tesnim backup
@@ -131,7 +135,7 @@ jobs:
           echo "Sent to Telegram ✔"
 
       - name: If anything failed, warn me on Telegram
-        if: failure()
+        if: failure() && env.READY == 'true'
         run: |
           [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT" ] || exit 0
           text="⚠️ ተስኒም ምትኬ አልተሳካም · Tesnim backup FAILED ($(TZ=Africa/Addis_Ababa date '+%Y-%m-%d %H:%M'))
